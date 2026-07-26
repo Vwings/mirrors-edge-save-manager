@@ -1,0 +1,26 @@
+[package]
+name = "mirrors-edge-save-switcher"
+version = "0.1.0"
+edition = "2024"
+description = "An unofficial save switcher for Mirror's Edge"
+license = "GPL-3.0-only"
+repository = "https://github.com/Vwings/mirrors-edge-save-switcher"
+
+[dependencies]
+slint = { version = "=1.17.1", default-features = false, features = [
+    "accessibility",
+    "backend-winit",
+    "compat-1-2",
+    "renderer-femtovg",
+    "std",
+] }
+
+[build-dependencies]
+slint-build = "=1.17.1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = "symbols"

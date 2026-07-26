@@ -1,0 +1,144 @@
+component StatusNode inherits Rectangle {
+    in property <string> caption;
+    in property <string> detail;
+    in property <color> accent;
+    in property <bool> selected;
+    callback activated;
+
+    width: 176px;
+    height: 176px;
+    background: transparent;
+
+    ring := Rectangle {
+        width: root.selected || touch.has-hover ? 164px : 148px;
+        height: self.width;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: self.width / 2;
+        border-width: root.selected ? 4px : 2px;
+        border-color: root.accent;
+        background: touch.pressed ? root.accent.darker(55%) : #171c27;
+
+        animate width, height, border-width, background {
+            duration: 180ms;
+            easing: ease-in-out;
+        }
+
+        VerticalLayout {
+            padding: 24px;
+            alignment: center;
+            spacing: 6px;
+
+            Text {
+                text: root.caption;
+                color: #f4f6fb;
+                font-size: 20px;
+                font-weight: 700;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: root.detail;
+                color: #929bad;
+                font-size: 12px;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.activated();
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: @tr("Mirror's Edge Save Switcher");
+    preferred-width: 820px;
+    preferred-height: 520px;
+    min-width: 680px;
+    min-height: 440px;
+    background: #0d1017;
+
+    private property <int> selected-node: 1;
+
+    VerticalLayout {
+        padding: 38px;
+        spacing: 26px;
+
+        VerticalLayout {
+            spacing: 5px;
+
+            Text {
+                text: @tr("Mirror's Edge Save Switcher");
+                color: #f4f6fb;
+                font-size: 28px;
+                font-weight: 700;
+            }
+
+            Text {
+                text: @tr("Slint + FemtoVG technical prototype");
+                color: #778195;
+                font-size: 13px;
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #252b38;
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 34px;
+
+            StatusNode {
+                caption: @tr("Presets");
+                detail: @tr("Saved starting points");
+                accent: #d24a42;
+                selected: root.selected-node == 0;
+                activated => {
+                    root.selected-node = 0;
+                }
+            }
+
+            StatusNode {
+                caption: @tr("Current");
+                detail: @tr("Active game save");
+                accent: #f1f3f7;
+                selected: root.selected-node == 1;
+                activated => {
+                    root.selected-node = 1;
+                }
+            }
+
+            StatusNode {
+                caption: @tr("Stash");
+                detail: @tr("Recovery history");
+                accent: #4f86c6;
+                selected: root.selected-node == 2;
+                activated => {
+                    root.selected-node = 2;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 48px;
+            border-radius: 24px;
+            border-width: 1px;
+            border-color: #303747;
+            background: #131822;
+
+            Text {
+                text: @tr("Select a node to verify pointer input and retained animations.");
+                color: #a9b1c0;
+                font-size: 13px;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
