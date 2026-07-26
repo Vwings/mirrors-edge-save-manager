@@ -6,6 +6,10 @@ The project is currently a technical prototype used to validate Slint, FemtoVG,
 Windows packaging, and binary size. It does not modify save files yet, and the
 prototype UI is not the final product design.
 
+The current product and architecture decisions are documented in
+[docs/design.md](docs/design.md). The document is a draft and is maintained
+before implementation work begins.
+
 ## Technology
 
 - Rust 2024
