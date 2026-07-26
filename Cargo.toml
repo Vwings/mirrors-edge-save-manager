@@ -7,6 +7,10 @@ license = "GPL-3.0-only"
 repository = "https://github.com/Vwings/mirrors-edge-save-switcher"
 
 [dependencies]
+flate2 = "1.1.9"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.10.9"
 slint = { version = "=1.17.1", default-features = false, features = [
     "accessibility",
     "backend-winit",
@@ -14,6 +18,17 @@ slint = { version = "=1.17.1", default-features = false, features = [
     "renderer-femtovg",
     "std",
 ] }
+uuid = { version = "1.24.0", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+] }
+
+[dev-dependencies]
+tempfile = "3.23.0"
 
 [build-dependencies]
 slint-build = "=1.17.1"

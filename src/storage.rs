@@ -1,0 +1,673 @@
+use std::error::Error;
+use std::fmt;
+use std::fs::{self, File};
+use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use flate2::Compression;
+use flate2::bufread::GzDecoder;
+use flate2::write::GzEncoder;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::known_folders::{self, KnownFolderError};
+use crate::save_file::{
+    SAVE_FILE_SIZE, SaveFileError, SaveFingerprint, SaveHash, fingerprint_reader,
+    validate_and_fingerprint,
+};
+use crate::stored_save::{StoredSaveKind, StoredSaveMetadata, StoredSaveOrigin};
+
+pub const APPLICATION_DIRECTORY_NAME: &str = "Mirror's Edge Save Switcher";
+pub const METADATA_SCHEMA_VERSION: u32 = 1;
+
+const STORED_SAVES_DIRECTORY_NAME: &str = "stored-saves";
+const METADATA_FILE_NAME: &str = "metadata.json";
+const PAYLOAD_FILE_NAME: &str = "payload.dat.gz";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CaptureResult {
+    pub metadata: StoredSaveMetadata,
+    pub duplicate_ids: Vec<String>,
+}
+
+#[derive(Debug)]
+pub enum StorageError {
+    Source(SaveFileError),
+    Io {
+        operation: &'static str,
+        path: PathBuf,
+        source: io::Error,
+    },
+    Json {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    InvalidMetadata {
+        path: PathBuf,
+        reason: String,
+    },
+    PayloadMismatch {
+        path: PathBuf,
+        expected: SaveFingerprint,
+        actual: SaveFingerprint,
+    },
+    InvalidTimestamp,
+}
+
+impl fmt::Display for StorageError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Source(source) => write!(formatter, "invalid source save: {source}"),
+            Self::Io {
+                operation,
+                path,
+                source,
+            } => write!(
+                formatter,
+                "failed to {operation} {}: {source}",
+                path.display()
+            ),
+            Self::Json { path, source } => {
+                write!(
+                    formatter,
+                    "invalid metadata at {}: {source}",
+                    path.display()
+                )
+            }
+            Self::InvalidMetadata { path, reason } => {
+                write!(
+                    formatter,
+                    "invalid metadata at {}: {reason}",
+                    path.display()
+                )
+            }
+            Self::PayloadMismatch {
+                path,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "payload at {} does not match metadata: expected {} bytes/{}, got {} bytes/{}",
+                path.display(),
+                expected.size,
+                expected.sha256,
+                actual.size,
+                actual.sha256
+            ),
+            Self::InvalidTimestamp => {
+                formatter.write_str("a save timestamp is earlier than the Unix epoch")
+            }
+        }
+    }
+}
+
+impl Error for StorageError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Source(source) => Some(source),
+            Self::Io { source, .. } => Some(source),
+            Self::Json { source, .. } => Some(source),
+            Self::InvalidMetadata { .. }
+            | Self::PayloadMismatch { .. }
+            | Self::InvalidTimestamp => None,
+        }
+    }
+}
+
+impl From<SaveFileError> for StorageError {
+    fn from(source: SaveFileError) -> Self {
+        Self::Source(source)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredSaveRepository {
+    root: PathBuf,
+}
+
+impl StoredSaveRepository {
+    pub fn for_current_user() -> Result<Self, KnownFolderError> {
+        Ok(Self::new(
+            known_folders::local_app_data()?.join(APPLICATION_DIRECTORY_NAME),
+        ))
+    }
+
+    pub fn new(root: PathBuf) -> Self {
+        Self { root }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub fn capture(
+        &self,
+        source: &Path,
+        kind: StoredSaveKind,
+        alias: String,
+        description: Option<String>,
+        origin: StoredSaveOrigin,
+    ) -> Result<CaptureResult, StorageError> {
+        let fingerprint = validate_and_fingerprint(source)?;
+        let source_metadata = fs::metadata(source).map_err(|source_error| StorageError::Io {
+            operation: "inspect source",
+            path: source.to_path_buf(),
+            source: source_error,
+        })?;
+        let source_modified_at = source_metadata
+            .modified()
+            .ok()
+            .map(truncate_to_millis)
+            .transpose()?;
+        let duplicate_ids = self
+            .list()?
+            .into_iter()
+            .filter(|existing| existing.fingerprint == fingerprint)
+            .map(|existing| existing.id)
+            .collect();
+        let id = Uuid::new_v4().to_string();
+        let saves_directory = self.stored_saves_directory();
+        create_directory_all(&saves_directory)?;
+
+        let staging_directory = saves_directory.join(format!(".{id}.tmp"));
+        let final_directory = saves_directory.join(&id);
+        create_directory(&staging_directory)?;
+
+        let result = (|| {
+            let payload_path = staging_directory.join(PAYLOAD_FILE_NAME);
+            compress_file(source, &payload_path)?;
+            verify_payload(&payload_path, fingerprint)?;
+
+            let metadata = StoredSaveMetadata {
+                id,
+                kind,
+                alias,
+                description,
+                origin,
+                created_at: truncate_to_millis(SystemTime::now())?,
+                source_filename: source
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                source_modified_at,
+                fingerprint,
+            };
+            write_metadata(&staging_directory.join(METADATA_FILE_NAME), &metadata)?;
+            Ok(metadata)
+        })();
+
+        let metadata = match result {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&staging_directory);
+                return Err(error);
+            }
+        };
+
+        if let Err(source) = fs::rename(&staging_directory, &final_directory) {
+            let _ = fs::remove_dir_all(&staging_directory);
+            return Err(StorageError::Io {
+                operation: "commit stored save",
+                path: final_directory,
+                source,
+            });
+        }
+
+        Ok(CaptureResult {
+            metadata,
+            duplicate_ids,
+        })
+    }
+
+    pub fn list(&self) -> Result<Vec<StoredSaveMetadata>, StorageError> {
+        let saves_directory = self.stored_saves_directory();
+        if !saves_directory
+            .try_exists()
+            .map_err(|source| StorageError::Io {
+                operation: "inspect stored saves directory",
+                path: saves_directory.clone(),
+                source,
+            })?
+        {
+            return Ok(Vec::new());
+        }
+
+        let entries = fs::read_dir(&saves_directory).map_err(|source| StorageError::Io {
+            operation: "read stored saves directory",
+            path: saves_directory.clone(),
+            source,
+        })?;
+        let mut saves = Vec::new();
+
+        for entry in entries {
+            let entry = entry.map_err(|source| StorageError::Io {
+                operation: "read stored save entry",
+                path: saves_directory.clone(),
+                source,
+            })?;
+            let file_type = entry.file_type().map_err(|source| StorageError::Io {
+                operation: "inspect stored save entry",
+                path: entry.path(),
+                source,
+            })?;
+            let name = entry.file_name();
+
+            if !file_type.is_dir() || name.to_string_lossy().starts_with('.') {
+                continue;
+            }
+
+            let metadata_path = entry.path().join(METADATA_FILE_NAME);
+            let metadata = read_metadata(&metadata_path)?;
+            if metadata.id != name.to_string_lossy() {
+                return Err(StorageError::InvalidMetadata {
+                    path: metadata_path,
+                    reason: "stored save ID does not match its directory".into(),
+                });
+            }
+            saves.push(metadata);
+        }
+
+        saves.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(saves)
+    }
+
+    pub fn verify(&self, id: &str) -> Result<SaveFingerprint, StorageError> {
+        Uuid::parse_str(id).map_err(|_| StorageError::InvalidMetadata {
+            path: self.stored_saves_directory().join(id),
+            reason: "stored save ID is not a UUID".into(),
+        })?;
+        let directory = self.stored_saves_directory().join(id);
+        let metadata = read_metadata(&directory.join(METADATA_FILE_NAME))?;
+        if metadata.id != id {
+            return Err(StorageError::InvalidMetadata {
+                path: directory.join(METADATA_FILE_NAME),
+                reason: "stored save ID does not match its directory".into(),
+            });
+        }
+        verify_payload(&directory.join(PAYLOAD_FILE_NAME), metadata.fingerprint)?;
+        Ok(metadata.fingerprint)
+    }
+
+    fn stored_saves_directory(&self) -> PathBuf {
+        self.root.join(STORED_SAVES_DIRECTORY_NAME)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MetadataDocument {
+    schema_version: u32,
+    id: String,
+    kind: StoredSaveKind,
+    alias: String,
+    description: Option<String>,
+    origin: StoredSaveOrigin,
+    created_at_unix_millis: u64,
+    source_filename: String,
+    source_modified_at_unix_millis: Option<u64>,
+    original_size: u64,
+    sha256: String,
+    compression: String,
+}
+
+impl MetadataDocument {
+    fn from_metadata(metadata: &StoredSaveMetadata) -> Result<Self, StorageError> {
+        Ok(Self {
+            schema_version: METADATA_SCHEMA_VERSION,
+            id: metadata.id.clone(),
+            kind: metadata.kind,
+            alias: metadata.alias.clone(),
+            description: metadata.description.clone(),
+            origin: metadata.origin,
+            created_at_unix_millis: time_to_millis(metadata.created_at)?,
+            source_filename: metadata.source_filename.clone(),
+            source_modified_at_unix_millis: metadata
+                .source_modified_at
+                .map(time_to_millis)
+                .transpose()?,
+            original_size: metadata.fingerprint.size,
+            sha256: metadata.fingerprint.sha256.to_string(),
+            compression: "gzip".into(),
+        })
+    }
+
+    fn into_metadata(self, path: &Path) -> Result<StoredSaveMetadata, StorageError> {
+        if self.schema_version != METADATA_SCHEMA_VERSION {
+            return Err(StorageError::InvalidMetadata {
+                path: path.to_path_buf(),
+                reason: format!("unsupported schema version {}", self.schema_version),
+            });
+        }
+        if self.compression != "gzip" {
+            return Err(StorageError::InvalidMetadata {
+                path: path.to_path_buf(),
+                reason: format!("unsupported compression {}", self.compression),
+            });
+        }
+        if self.original_size != SAVE_FILE_SIZE {
+            return Err(StorageError::InvalidMetadata {
+                path: path.to_path_buf(),
+                reason: format!("unexpected original size {}", self.original_size),
+            });
+        }
+        if Uuid::parse_str(&self.id).is_err() {
+            return Err(StorageError::InvalidMetadata {
+                path: path.to_path_buf(),
+                reason: "stored save ID is not a UUID".into(),
+            });
+        }
+
+        let sha256 =
+            self.sha256
+                .parse::<SaveHash>()
+                .map_err(|source| StorageError::InvalidMetadata {
+                    path: path.to_path_buf(),
+                    reason: source.to_string(),
+                })?;
+        let created_at = millis_to_time(self.created_at_unix_millis, path)?;
+        let source_modified_at = self
+            .source_modified_at_unix_millis
+            .map(|millis| millis_to_time(millis, path))
+            .transpose()?;
+
+        Ok(StoredSaveMetadata {
+            id: self.id,
+            kind: self.kind,
+            alias: self.alias,
+            description: self.description,
+            origin: self.origin,
+            created_at,
+            source_filename: self.source_filename,
+            source_modified_at,
+            fingerprint: SaveFingerprint {
+                size: self.original_size,
+                sha256,
+            },
+        })
+    }
+}
+
+fn write_metadata(path: &Path, metadata: &StoredSaveMetadata) -> Result<(), StorageError> {
+    let document = MetadataDocument::from_metadata(metadata)?;
+    let serialized = serde_json::to_vec_pretty(&document).map_err(|source| StorageError::Json {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let mut file = File::create(path).map_err(|source| StorageError::Io {
+        operation: "create metadata",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    file.write_all(&serialized)
+        .and_then(|_| file.write_all(b"\n"))
+        .and_then(|_| file.sync_all())
+        .map_err(|source| StorageError::Io {
+            operation: "write metadata",
+            path: path.to_path_buf(),
+            source,
+        })
+}
+
+fn read_metadata(path: &Path) -> Result<StoredSaveMetadata, StorageError> {
+    let file = File::open(path).map_err(|source| StorageError::Io {
+        operation: "open metadata",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let document =
+        serde_json::from_reader::<_, MetadataDocument>(BufReader::new(file)).map_err(|source| {
+            StorageError::Json {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+    document.into_metadata(path)
+}
+
+fn compress_file(source: &Path, destination: &Path) -> Result<(), StorageError> {
+    let input = File::open(source).map_err(|source_error| StorageError::Io {
+        operation: "open source for compression",
+        path: source.to_path_buf(),
+        source: source_error,
+    })?;
+    let output = File::create(destination).map_err(|source| StorageError::Io {
+        operation: "create compressed payload",
+        path: destination.to_path_buf(),
+        source,
+    })?;
+    let mut encoder = GzEncoder::new(BufWriter::new(output), Compression::best());
+    io::copy(&mut BufReader::new(input), &mut encoder).map_err(|source| StorageError::Io {
+        operation: "compress source save",
+        path: destination.to_path_buf(),
+        source,
+    })?;
+    let mut output = encoder.finish().map_err(|source| StorageError::Io {
+        operation: "finish compressed payload",
+        path: destination.to_path_buf(),
+        source,
+    })?;
+    output.flush().map_err(|source| StorageError::Io {
+        operation: "flush compressed payload",
+        path: destination.to_path_buf(),
+        source,
+    })?;
+    output
+        .get_ref()
+        .sync_all()
+        .map_err(|source| StorageError::Io {
+            operation: "sync compressed payload",
+            path: destination.to_path_buf(),
+            source,
+        })
+}
+
+fn verify_payload(path: &Path, expected: SaveFingerprint) -> Result<(), StorageError> {
+    let file = File::open(path).map_err(|source| StorageError::Io {
+        operation: "open compressed payload",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let decoder = GzDecoder::new(BufReader::new(file));
+    let actual = fingerprint_reader(decoder.take(SAVE_FILE_SIZE + 1)).map_err(|source| {
+        StorageError::Io {
+            operation: "decompress payload",
+            path: path.to_path_buf(),
+            source,
+        }
+    })?;
+
+    if actual != expected {
+        return Err(StorageError::PayloadMismatch {
+            path: path.to_path_buf(),
+            expected,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn create_directory_all(path: &Path) -> Result<(), StorageError> {
+    fs::create_dir_all(path).map_err(|source| StorageError::Io {
+        operation: "create directory",
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn create_directory(path: &Path) -> Result<(), StorageError> {
+    fs::create_dir(path).map_err(|source| StorageError::Io {
+        operation: "create staging directory",
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn truncate_to_millis(time: SystemTime) -> Result<SystemTime, StorageError> {
+    Ok(UNIX_EPOCH + Duration::from_millis(time_to_millis(time)?))
+}
+
+fn time_to_millis(time: SystemTime) -> Result<u64, StorageError> {
+    let millis = time
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| StorageError::InvalidTimestamp)?
+        .as_millis();
+    u64::try_from(millis).map_err(|_| StorageError::InvalidTimestamp)
+}
+
+fn millis_to_time(millis: u64, path: &Path) -> Result<SystemTime, StorageError> {
+    UNIX_EPOCH
+        .checked_add(Duration::from_millis(millis))
+        .ok_or_else(|| StorageError::InvalidMetadata {
+            path: path.to_path_buf(),
+            reason: "timestamp is out of range".into(),
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Seek, SeekFrom};
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn create_valid_save(directory: &Path, name: &str) -> PathBuf {
+        let path = directory.join(name);
+        let mut file = File::create(&path).unwrap();
+        file.set_len(SAVE_FILE_SIZE).unwrap();
+        file.seek(SeekFrom::Start(SAVE_FILE_SIZE - 1)).unwrap();
+        file.write_all(&[1]).unwrap();
+        file.flush().unwrap();
+        path
+    }
+
+    #[test]
+    fn captures_lists_and_verifies_a_stored_save() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+
+        let captured = repository
+            .capture(
+                &source,
+                StoredSaveKind::Stash,
+                "Before practice".into(),
+                Some("Automatic recovery point".into()),
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+
+        assert!(captured.duplicate_ids.is_empty());
+        assert_eq!("Vwings.dat", captured.metadata.source_filename);
+        assert_eq!(
+            captured.metadata.fingerprint,
+            repository.verify(&captured.metadata.id).unwrap()
+        );
+
+        let listed = repository.list().unwrap();
+        assert_eq!(vec![captured.metadata.clone()], listed);
+
+        let payload = repository
+            .root()
+            .join(STORED_SAVES_DIRECTORY_NAME)
+            .join(&captured.metadata.id)
+            .join(PAYLOAD_FILE_NAME);
+        assert!(fs::metadata(payload).unwrap().len() < SAVE_FILE_SIZE);
+    }
+
+    #[test]
+    fn reports_duplicate_content_but_keeps_both_entries() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let first = repository
+            .capture(
+                &source,
+                StoredSaveKind::Preset,
+                "First".into(),
+                None,
+                StoredSaveOrigin::Imported,
+            )
+            .unwrap();
+
+        let second = repository
+            .capture(
+                &source,
+                StoredSaveKind::Preset,
+                "Second".into(),
+                None,
+                StoredSaveOrigin::Imported,
+            )
+            .unwrap();
+
+        assert_eq!(vec![first.metadata.id], second.duplicate_ids);
+        assert_eq!(2, repository.list().unwrap().len());
+    }
+
+    #[test]
+    fn invalid_source_does_not_create_a_stored_save() {
+        let directory = TempDir::new().unwrap();
+        let source = directory.path().join("invalid.dat");
+        fs::write(&source, b"invalid").unwrap();
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+
+        let result = repository.capture(
+            &source,
+            StoredSaveKind::Stash,
+            "Invalid".into(),
+            None,
+            StoredSaveOrigin::Imported,
+        );
+
+        assert!(matches!(result, Err(StorageError::Source(_))));
+        assert!(repository.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn detects_a_corrupted_compressed_payload() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let captured = repository
+            .capture(
+                &source,
+                StoredSaveKind::Stash,
+                "Recovery".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+        let payload = repository
+            .stored_saves_directory()
+            .join(&captured.metadata.id)
+            .join(PAYLOAD_FILE_NAME);
+        fs::write(payload, b"not gzip").unwrap();
+
+        let result = repository.verify(&captured.metadata.id);
+
+        assert!(matches!(result, Err(StorageError::Io { .. })));
+    }
+
+    #[test]
+    fn reports_a_storage_root_that_is_not_a_directory() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let root = directory.path().join("app-data");
+        fs::write(&root, b"this blocks directory creation").unwrap();
+        let repository = StoredSaveRepository::new(root);
+
+        let result = repository.capture(
+            &source,
+            StoredSaveKind::Stash,
+            "Recovery".into(),
+            None,
+            StoredSaveOrigin::Current,
+        );
+
+        assert!(matches!(result, Err(StorageError::Io { .. })));
+    }
+}
