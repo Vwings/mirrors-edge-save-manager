@@ -10,6 +10,7 @@ is not the final product design.
 Read these files before making changes:
 
 - `README.md` for repository context and development commands.
+- `docs/status.md` for the current milestone, verification state, and next task.
 - `docs/design.md` for the current product and domain decisions.
 - `ui/app-window.slint` only when working on the existing prototype UI.
 
@@ -120,3 +121,30 @@ cargo build --release
 
 For changes to `ui/app-window.slint`, also run `cargo run` and inspect the
 prototype manually. Do not change the UI merely to make a domain test pass.
+
+## Commit Messages
+
+Use Conventional Commits for new commits:
+
+```text
+<type>[(scope)]: <imperative summary>
+```
+
+The scope is optional. Prefer the smallest useful scope, such as `discovery`,
+`storage`, `safety`, or `ui`.
+
+Examples:
+
+```text
+feat(storage): persist compressed stored saves
+feat(safety): block mutations while the game is running
+fix(storage): clean staged files after capture failure
+test(storage): cover corrupted payload recovery
+docs: update transaction design
+chore: update development configuration
+```
+
+Use `feat` for user-visible capabilities, `fix` for defects, `test` for
+test-only changes, `docs` for documentation-only changes, and `chore` for
+maintenance. Do not rewrite already-pushed history solely to rename older
+commits.
