@@ -1,3 +1,4 @@
+pub mod apply;
 pub mod discovery;
 pub mod game_process;
 pub mod known_folders;
@@ -7,3 +8,5 @@ pub mod save_file;
 pub mod staging;
 pub mod storage;
 pub mod stored_save;
+mod transaction;
+mod windows_file;

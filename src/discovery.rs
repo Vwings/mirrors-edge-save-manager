@@ -5,6 +5,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use uuid::Uuid;
+
 use crate::known_folders::{self, KnownFolderError};
 
 const SAVE_DIRECTORY_COMPONENTS: [&str; 4] = ["EA Games", "Mirror's Edge", "TdGame", "Savefiles"];
@@ -129,7 +131,10 @@ pub fn discover_current_in_documents(
                 source,
             })?;
 
-        if file_type.is_file() && has_dat_extension(&entry.path()) {
+        if file_type.is_file()
+            && has_dat_extension(&entry.path())
+            && !is_transaction_artifact(&entry.file_name())
+        {
             candidates.push(entry.path());
         }
     }
@@ -161,6 +166,21 @@ pub fn save_directory_in(documents_directory: &Path) -> PathBuf {
 fn has_dat_extension(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("dat"))
+}
+
+fn is_transaction_artifact(name: &OsStr) -> bool {
+    const PREFIX: &str = ".mirrors-edge-save-switcher-";
+    const SUFFIXES: [&str; 3] = [".replacement.dat", ".rollback.dat", ".failed.dat"];
+
+    let name = name.to_string_lossy();
+    let Some(remainder) = name.strip_prefix(PREFIX) else {
+        return false;
+    };
+    SUFFIXES.iter().any(|suffix| {
+        remainder
+            .strip_suffix(suffix)
+            .is_some_and(|id| Uuid::parse_str(id).is_ok())
+    })
 }
 
 #[cfg(test)]
@@ -240,6 +260,32 @@ mod tests {
             CurrentSaveDiscovery::CurrentAmbiguous {
                 directory,
                 candidates: vec![first, second]
+            },
+            result
+        );
+    }
+
+    #[test]
+    fn ignores_owned_transaction_artifacts_but_not_similar_user_files() {
+        let documents = TempDir::new().unwrap();
+        let directory = create_save_directory(documents.path());
+        let current = directory.join("Vwings.dat");
+        fs::write(&current, b"current").unwrap();
+        let id = Uuid::new_v4();
+        fs::write(
+            directory.join(format!(".mirrors-edge-save-switcher-{id}.replacement.dat")),
+            b"staging",
+        )
+        .unwrap();
+        let similar = directory.join(".mirrors-edge-save-switcher-not-a-uuid.rollback.dat");
+        fs::write(&similar, b"user file").unwrap();
+
+        let result = discover_current_in_documents(documents.path()).unwrap();
+
+        assert_eq!(
+            CurrentSaveDiscovery::CurrentAmbiguous {
+                directory,
+                candidates: vec![similar, current]
             },
             result
         );

@@ -100,7 +100,7 @@ Completion criteria:
 
 ## Phase 4: Safe Apply Engine
 
-Status: Next
+Status: Complete
 
 Deliverables:
 
@@ -123,7 +123,7 @@ Completion criteria:
 
 ## Phase 5: Recovery and Fault Coverage
 
-Status: Planned
+Status: Next
 
 Deliverables:
 

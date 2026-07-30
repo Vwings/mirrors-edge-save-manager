@@ -13,10 +13,10 @@ and immediate ordered work.
 
 ## Current Stage
 
-The storage-domain and mutation-safety foundations are complete, and the safe
-apply transaction is fully specified. Apply and recovery implementation is the
-current stage. The domain code is not connected to the Slint prototype, and no
-implemented operation can replace the game's Current save yet.
+The safe Apply engine is complete, including automatic Stash capture, durable
+journaling, Current rechecks, atomic Windows replacement, verification, and
+commit cleanup. Startup transaction recovery and fault coverage are the current
+stage. The domain code is not connected to the Slint prototype yet.
 
 ## Completed
 
@@ -45,17 +45,23 @@ implemented operation can replace the game's Current save yet.
   update order, artifact naming, and fingerprint-based startup recovery matrix.
 - Create-new, same-directory StoredSave staging with decompression, flush,
   complete fingerprint verification, and partial-file cleanup on failure.
+- Safe Apply orchestration with automatic Stash capture, durable journal phase
+  updates, process and Current rechecks, `ReplaceFileW`, rollback retention,
+  replacement verification, and commit cleanup.
+- Current discovery exclusion for exact application-owned transaction artifacts
+  without hiding similarly named user `.dat` files.
 - Tests for discovery, validation, hashing, capture, duplicate content,
   corrupted payloads, storage-path failures, process-name matching, operation
-  lock contention, mutation blocking, and staging safety.
+  lock contention, mutation blocking, staging safety, successful Apply, and a
+  Current changed immediately before replacement.
 
 ## Last Verification
 
-The following checks passed after the StoredSave staging work:
+The following checks passed after the safe Apply work:
 
 ```text
 cargo fmt --check
-cargo test                         # 26 passed
+cargo test                         # 29 passed
 cargo clippy --all-targets -- -D warnings
 cargo build --release
 ```
@@ -81,7 +87,7 @@ Complete these in order unless the design document is updated first:
 - [x] Finalize the transaction journal states and Windows atomic replacement
   API in `docs/design.md`.
 - [x] Decompress a selected StoredSave into a same-directory staging file.
-- [ ] Implement apply: capture Current as Stash, recheck safety conditions,
+- [x] Implement apply: capture Current as Stash, recheck safety conditions,
   replace Current, verify, and retain rollback data until commit.
 - [ ] Recover interrupted apply transactions at startup.
 - [ ] Add tests for process locks, changed Current fingerprints, staging

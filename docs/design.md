@@ -82,6 +82,12 @@ Extension matching is ASCII case-insensitive. Non-files, symlinks, and files
 with other extensions are ignored. Failure to enumerate or inspect the
 directory is an operational error rather than a missing-Current state.
 
+Application-owned transaction artifacts are also excluded from Current
+candidate counting only when their filename has the exact reserved prefix,
+suffix, and a valid transaction UUID. Similar user filenames remain ordinary
+`.dat` candidates. Transaction recovery, rather than Current discovery, owns
+the reserved replacement, rollback, and failed files.
+
 ### 4.2 StoredSave
 
 StoredSave is an immutable copy that can be selected and applied to Current.
@@ -295,7 +301,7 @@ An apply journal uses schema version 1 and contains:
 ```text
 schema_version: 1
 transaction_id
-operation: Apply
+operation: apply
 phase: Prepared | Replacing | Replaced | Verified | RollingBack
 created_at
 updated_at

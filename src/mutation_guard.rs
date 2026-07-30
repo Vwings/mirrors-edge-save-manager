@@ -4,6 +4,9 @@ use std::fmt;
 use crate::game_process::{self, GameProcessError};
 use crate::operation_lock::{OperationLock, OperationLockError};
 
+#[cfg(test)]
+pub(crate) static MUTATION_GUARD_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[derive(Debug)]
 pub enum MutationGuardError {
     OperationInProgress,
@@ -77,11 +80,7 @@ impl MutationGuard {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use std::sync::Mutex;
-
     use super::*;
-
-    static MUTATION_GUARD_TEST: Mutex<()> = Mutex::new(());
 
     #[test]
     fn acquires_when_no_other_operation_or_game_is_running() {
