@@ -7,8 +7,9 @@ Windows packaging, and binary size. It does not modify save files yet, and the
 prototype UI is not the final product design.
 
 The current product and architecture decisions are documented in
-[docs/design.md](docs/design.md). The document is a draft and is maintained
-before implementation work begins.
+[docs/design.md](docs/design.md). The path to a releasable first version is in
+[docs/roadmap.md](docs/roadmap.md), while [docs/status.md](docs/status.md)
+records the current implementation handoff.
 
 ## Technology
 

@@ -277,6 +277,22 @@ impl StoredSaveRepository {
     }
 
     pub fn verify(&self, id: &str) -> Result<SaveFingerprint, StorageError> {
+        let (metadata, payload_path) = self.load_entry(id)?;
+        verify_payload(&payload_path, metadata.fingerprint)?;
+        Ok(metadata.fingerprint)
+    }
+
+    pub(crate) fn materialize_payload(
+        &self,
+        id: &str,
+        destination: &Path,
+    ) -> Result<SaveFingerprint, StorageError> {
+        let (metadata, payload_path) = self.load_entry(id)?;
+        decompress_payload(&payload_path, destination, metadata.fingerprint)?;
+        Ok(metadata.fingerprint)
+    }
+
+    fn load_entry(&self, id: &str) -> Result<(StoredSaveMetadata, PathBuf), StorageError> {
         Uuid::parse_str(id).map_err(|_| StorageError::InvalidMetadata {
             path: self.stored_saves_directory().join(id),
             reason: "stored save ID is not a UUID".into(),
@@ -289,8 +305,7 @@ impl StoredSaveRepository {
                 reason: "stored save ID does not match its directory".into(),
             });
         }
-        verify_payload(&directory.join(PAYLOAD_FILE_NAME), metadata.fingerprint)?;
-        Ok(metadata.fingerprint)
+        Ok((metadata, directory.join(PAYLOAD_FILE_NAME)))
     }
 
     fn stored_saves_directory(&self) -> PathBuf {
@@ -486,6 +501,87 @@ fn verify_payload(path: &Path, expected: SaveFingerprint) -> Result<(), StorageE
             expected,
             actual,
         });
+    }
+    Ok(())
+}
+
+fn decompress_payload(
+    source: &Path,
+    destination: &Path,
+    expected: SaveFingerprint,
+) -> Result<(), StorageError> {
+    let input = File::open(source).map_err(|source_error| StorageError::Io {
+        operation: "open compressed payload",
+        path: source.to_path_buf(),
+        source: source_error,
+    })?;
+    let output = File::options()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .map_err(|source| StorageError::Io {
+            operation: "create staged payload",
+            path: destination.to_path_buf(),
+            source,
+        })?;
+    let result = {
+        let decoder = GzDecoder::new(BufReader::new(input));
+        let mut output = BufWriter::new(output);
+
+        (|| {
+            io::copy(&mut decoder.take(SAVE_FILE_SIZE + 1), &mut output).map_err(|source| {
+                StorageError::Io {
+                    operation: "decompress staged payload",
+                    path: destination.to_path_buf(),
+                    source,
+                }
+            })?;
+            output.flush().map_err(|source| StorageError::Io {
+                operation: "flush staged payload",
+                path: destination.to_path_buf(),
+                source,
+            })?;
+            output
+                .get_ref()
+                .sync_all()
+                .map_err(|source| StorageError::Io {
+                    operation: "sync staged payload",
+                    path: destination.to_path_buf(),
+                    source,
+                })?;
+
+            let file = File::open(destination).map_err(|source| StorageError::Io {
+                operation: "open staged payload for verification",
+                path: destination.to_path_buf(),
+                source,
+            })?;
+            let actual = fingerprint_reader(BufReader::new(file).take(SAVE_FILE_SIZE + 1))
+                .map_err(|source| StorageError::Io {
+                    operation: "verify staged payload",
+                    path: destination.to_path_buf(),
+                    source,
+                })?;
+
+            if actual != expected {
+                return Err(StorageError::PayloadMismatch {
+                    path: destination.to_path_buf(),
+                    expected,
+                    actual,
+                });
+            }
+            Ok(())
+        })()
+    };
+
+    if let Err(error) = result {
+        if let Err(source) = fs::remove_file(destination) {
+            return Err(StorageError::Io {
+                operation: "remove failed staged payload",
+                path: destination.to_path_buf(),
+                source,
+            });
+        }
+        return Err(error);
     }
     Ok(())
 }

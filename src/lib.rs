@@ -1,5 +1,9 @@
 pub mod discovery;
+pub mod game_process;
 pub mod known_folders;
+pub mod mutation_guard;
+pub mod operation_lock;
 pub mod save_file;
+pub mod staging;
 pub mod storage;
 pub mod stored_save;

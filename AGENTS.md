@@ -12,6 +12,7 @@ Read these files before making changes:
 - `README.md` for repository context and development commands.
 - `docs/status.md` for the current milestone, verification state, and next task.
 - `docs/design.md` for the current product and domain decisions.
+- `docs/roadmap.md` for the ordered path to a complete first version.
 - `ui/app-window.slint` only when working on the existing prototype UI.
 
 ## Design-First Workflow
@@ -129,6 +130,13 @@ Use Conventional Commits for new commits:
 ```text
 <type>[(scope)]: <imperative summary>
 ```
+
+A body is optional for small, self-explanatory commits. Add a short body for
+changes involving data safety, persisted formats, transaction behavior,
+compatibility, or significant design decisions. Explain motivation, guarantees,
+or important tradeoffs rather than repeating the changed-file list. Separate
+the body from the summary with a blank line and normally keep it to one to three
+sentences.
 
 The scope is optional. Prefer the smallest useful scope, such as `discovery`,
 `storage`, `safety`, or `ui`.

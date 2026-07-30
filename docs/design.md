@@ -228,6 +228,15 @@ The game process is a hard prerequisite for every mutation.
 - Use an application-level lock to prevent two switcher instances from acting
   concurrently.
 
+All mutating application operations use one mutation guard. The guard first
+attempts to acquire a non-blocking, session-local Windows named mutex and then
+checks the game process state. Failure to acquire the mutex reports that another
+switcher operation is active; a running game reports a separate blocked reason.
+The guard owns the mutex for the full mutation and releases it when dropped.
+An abandoned mutex is acquired normally because Windows has already released
+its previous owner's claim; transaction-journal recovery remains responsible
+for resolving any interrupted filesystem operation.
+
 The replacement transaction is:
 
 1. Acquire the application lock.
@@ -248,6 +257,144 @@ replacement only after verifying the recorded fingerprints.
 Cloud sync, antivirus scanning, file locks, and controlled-folder access may
 cause replacement to fail. These must produce an actionable error and never be
 handled by deleting the original Current first.
+
+### 7.1 Replacement API and Artifacts
+
+Current replacement uses the Unicode Win32 `ReplaceFileW` API with the current
+path as the replaced file, the verified same-directory staging path as the
+replacement file, and a same-directory rollback path as the backup file. All
+three files are therefore on the same volume. Replacement flags are zero:
+`REPLACEFILE_WRITE_THROUGH` is unsupported, and ACL or metadata merge errors
+must not be ignored.
+
+`ReplaceFileW` is treated as an operation that may have changed more than one
+path even when it reports failure. In particular, documented failure modes can
+leave the old Current under the rollback name or can leave inherited attributes
+on the staging file. Every return path must classify and fingerprint the actual
+artifacts before cleanup or retry.
+
+Each apply transaction derives these names from one UUID:
+
+```text
+%LOCALAPPDATA%\Mirror's Edge Save Switcher\transactions\<id>.json
+<Current directory>\.mirrors-edge-save-switcher-<id>.replacement.dat
+<Current directory>\.mirrors-edge-save-switcher-<id>.rollback.dat
+<Current directory>\.mirrors-edge-save-switcher-<id>.failed.dat
+```
+
+The replacement, rollback, and failed paths must not exist when the transaction
+starts. Files are created with create-new semantics. Recovery validates the UUID
+and requires all recorded temporary paths to equal these derived names beside
+the recorded Current path; journal data cannot direct the application to an
+arbitrary filesystem path.
+
+### 7.2 Apply Journal Schema
+
+An apply journal uses schema version 1 and contains:
+
+```text
+schema_version: 1
+transaction_id
+operation: Apply
+phase: Prepared | Replacing | Replaced | Verified | RollingBack
+created_at
+updated_at
+stored_save_id
+automatic_stash_id
+current_path
+replacement_path
+rollback_path
+failed_replacement_path
+original_fingerprint: size + SHA-256
+replacement_fingerprint: size + SHA-256
+```
+
+The automatic Stash must already be committed and verified before the first
+journal is published. Its ID provides a durable additional copy of the original
+bytes, but it does not replace the same-directory rollback requirement.
+
+Journal creation and each phase update use a sibling temporary JSON file. The
+application writes the complete document, flushes the file, and publishes it
+with `MoveFileExW`; updates use `MOVEFILE_REPLACE_EXISTING |
+MOVEFILE_WRITE_THROUGH`. A malformed or unsupported journal blocks all new
+mutations and is never silently deleted.
+
+The phases mean:
+
+- `Prepared`: the automatic Stash and replacement staging file are verified,
+  and Current still has the recorded original fingerprint.
+- `Replacing`: process state and Current fingerprint were rechecked, and the
+  next filesystem action is `ReplaceFileW`.
+- `Replaced`: artifact inspection shows Current has the replacement fingerprint
+  and rollback has the original fingerprint.
+- `Verified`: Current was reopened and fully validated after replacement.
+- `RollingBack`: the application is about to restore the original fingerprint
+  from rollback.
+
+There is no persisted `Committed` phase. Deleting the journal is the commit
+marker. Cleanup after `Verified` deletes rollback first and the journal last. A
+crash after rollback cleanup but before journal deletion is recoverable because
+Current has the verified replacement fingerprint and the automatic Stash still
+contains the original bytes.
+
+### 7.3 Durable Apply Order
+
+The detailed apply sequence is:
+
+1. Acquire the mutation guard and discover exactly one Current.
+2. Validate and fingerprint Current as the expected original.
+3. Capture and verify Current as the automatic Stash.
+4. Create the same-directory replacement file, finish decompression, flush it,
+   and verify its size and SHA-256.
+5. Publish the `Prepared` journal.
+6. Recheck `MirrorsEdge.exe`, rediscover the same Current path, and require its
+   fingerprint to equal the expected original.
+7. Publish `Replacing`, then call `ReplaceFileW` with the rollback path.
+8. Inspect all transaction artifacts even if `ReplaceFileW` reports failure.
+9. When Current is the expected replacement and rollback is the expected
+   original, publish `Replaced`.
+10. Reopen and validate Current, then publish `Verified`.
+11. Delete rollback and then delete the journal to commit.
+
+File contents are flushed before their paths are published. The design relies
+on same-volume Windows rename and replacement semantics plus fingerprint-based
+startup recovery; it does not claim stronger power-loss guarantees than the
+underlying filesystem and hardware provide.
+
+### 7.4 Recovery Classification
+
+Startup recovery acquires the same mutation guard. If the game is running,
+recovery and all other mutations remain blocked. The journal phase explains the
+last intended action, but recovery decisions use the actual artifact types and
+complete fingerprints.
+
+Let `O` be the recorded original fingerprint, `N` the recorded replacement,
+`M` a missing path, and `X` any other content, non-regular file, or unreadable
+path. Automatic recovery is limited to these cases:
+
+| Current | Staging | Rollback | Failed | Recovery action |
+| --- | --- | --- | --- | --- |
+| `O` | `N` | `M` | `M` | Replacement did not occur; delete staging, then journal. |
+| `O` | `M` | `M` | `M` | Original is live and staging was lost; delete journal. |
+| `N` | `M` | `O` | `M` | Replacement succeeded; verify Current, delete rollback, then journal. |
+| `N` | `M` | `M` | `M` | Only with phase `Verified`, rollback cleanup finished; delete journal. |
+| `O` | `N` or `M` | `O` | `M` | Original is live; remove verified duplicate artifacts, then journal. |
+| `M` | `N` or `M` | `O` | `M` | Restore rollback to Current, verify `O`, then clean up. |
+| `O` | `M` | `M` | `N` | Only with phase `RollingBack`, rollback finished; delete failed, then journal. |
+
+Restoring over an existing replacement first publishes `RollingBack`, then uses
+`ReplaceFileW` with the rollback file as the replacement and the failed path as
+the backup destination. Restoring a missing Current moves rollback back to the
+recorded Current path with `MoveFileExW` and `MOVEFILE_WRITE_THROUGH`. Restored
+Current must be reopened and fingerprinted before any artifact is deleted.
+
+Any combination containing `X`, an unexpected extra artifact, a mismatched
+path, or `Current = N` without `Rollback = O` outside the explicitly listed
+`Verified` cleanup window enters a blocked recovery state. The application
+preserves all artifacts and reports their paths and observed fingerprints. It
+must not infer identity from timestamps, automatically use the automatic Stash
+as a substitute rollback, or allow another mutation until the state is
+explicitly resolved.
 
 ## 8. User Interface Direction
 
@@ -347,6 +494,5 @@ changes to the core model:
   fixed size.
 - Measured executable-size impact once storage is linked into the application.
 - Alias validation and default naming rules.
-- The detailed transaction journal and Windows atomic replacement API.
 - Built-in resource versioning across application upgrades.
 - Licensing and provenance notes for distributed binary save resources.
