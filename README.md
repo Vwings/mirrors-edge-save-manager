@@ -1,10 +1,11 @@
-# Mirror's Edge Save Switcher
+# Mirror's Edge Save Manager
 
 An unofficial, open-source save preset and recovery manager for Mirror's Edge.
 
-The project is currently a technical prototype used to validate Slint, FemtoVG,
-Windows packaging, and binary size. It does not modify save files yet, and the
-prototype UI is not the final product design.
+The project currently has tested storage, safe Apply, startup recovery, and
+actionable application-error layers alongside the original Slint technical
+prototype. The domain layer is not connected to the GUI yet, and the prototype
+UI is not the final product design.
 
 The current product and architecture decisions are documented in
 [docs/design.md](docs/design.md). The path to a releasable first version is in
@@ -30,7 +31,7 @@ cargo build --release
 ```
 
 The release executable is written to
-`target\release\mirrors-edge-save-switcher.exe`.
+`target\release\mirrors-edge-save-manager.exe`.
 
 The current x64 technical prototype builds to a 7.12 MiB Windows GUI executable
 with the MSVC runtime linked statically. Its remaining imports are Windows system
@@ -45,5 +46,9 @@ bundled into the executable later without changing the UI structure.
 ## License
 
 Licensed under the GNU General Public License v3.0 only.
+
+Bundled community save assets are not covered by that license. Their source,
+risk acceptance, fingerprints, and distribution notice are documented in
+[`resources/built-in/NOTICE.md`](resources/built-in/NOTICE.md).
 
 This project is not affiliated with or endorsed by Electronic Arts or DICE.

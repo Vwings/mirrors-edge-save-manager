@@ -1,7 +1,8 @@
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -11,19 +12,24 @@ use flate2::write::GzEncoder;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::alias::{AliasError, validate_alias};
+use crate::built_in::BUILT_IN_RESOURCES;
 use crate::known_folders::{self, KnownFolderError};
 use crate::save_file::{
     SAVE_FILE_SIZE, SaveFileError, SaveFingerprint, SaveHash, fingerprint_reader,
     validate_and_fingerprint,
 };
 use crate::stored_save::{StoredSaveKind, StoredSaveMetadata, StoredSaveOrigin};
+use crate::windows_file;
 
-pub const APPLICATION_DIRECTORY_NAME: &str = "Mirror's Edge Save Switcher";
+pub const APPLICATION_DIRECTORY_NAME: &str = "Mirror's Edge Save Manager";
 pub const METADATA_SCHEMA_VERSION: u32 = 1;
 
 const STORED_SAVES_DIRECTORY_NAME: &str = "stored-saves";
 const METADATA_FILE_NAME: &str = "metadata.json";
 const PAYLOAD_FILE_NAME: &str = "payload.dat.gz";
+const SETTINGS_FILE_NAME: &str = "settings.json";
+const SETTINGS_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptureResult {
@@ -33,6 +39,7 @@ pub struct CaptureResult {
 
 #[derive(Debug)]
 pub enum StorageError {
+    Alias(AliasError),
     Source(SaveFileError),
     Io {
         operation: &'static str,
@@ -52,12 +59,16 @@ pub enum StorageError {
         expected: SaveFingerprint,
         actual: SaveFingerprint,
     },
+    UnknownBuiltIn(String),
+    BuiltInImmutable(String),
+    NotAStash(String),
     InvalidTimestamp,
 }
 
 impl fmt::Display for StorageError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Alias(source) => write!(formatter, "invalid alias: {source}"),
             Self::Source(source) => write!(formatter, "invalid source save: {source}"),
             Self::Io {
                 operation,
@@ -95,6 +106,11 @@ impl fmt::Display for StorageError {
                 actual.size,
                 actual.sha256
             ),
+            Self::UnknownBuiltIn(id) => write!(formatter, "unknown built-in Preset {id}"),
+            Self::BuiltInImmutable(id) => {
+                write!(formatter, "built-in Preset {id} is read-only")
+            }
+            Self::NotAStash(id) => write!(formatter, "StoredSave {id} is not a Stash"),
             Self::InvalidTimestamp => {
                 formatter.write_str("a save timestamp is earlier than the Unix epoch")
             }
@@ -105,11 +121,15 @@ impl fmt::Display for StorageError {
 impl Error for StorageError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Alias(source) => Some(source),
             Self::Source(source) => Some(source),
             Self::Io { source, .. } => Some(source),
             Self::Json { source, .. } => Some(source),
             Self::InvalidMetadata { .. }
             | Self::PayloadMismatch { .. }
+            | Self::UnknownBuiltIn(_)
+            | Self::BuiltInImmutable(_)
+            | Self::NotAStash(_)
             | Self::InvalidTimestamp => None,
         }
     }
@@ -121,20 +141,41 @@ impl From<SaveFileError> for StorageError {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuiltInResource {
+    pub(crate) id: &'static str,
+    pub(crate) version: u32,
+    pub(crate) alias: &'static str,
+    pub(crate) description: Option<&'static str>,
+    pub(crate) source_filename: &'static str,
+    pub(crate) created_at_millis: u64,
+    pub(crate) fingerprint: SaveFingerprint,
+    pub(crate) compressed_payload: &'static [u8],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredSaveRepository {
     root: PathBuf,
+    built_ins: &'static [BuiltInResource],
 }
 
 impl StoredSaveRepository {
     pub fn for_current_user() -> Result<Self, KnownFolderError> {
-        Ok(Self::new(
+        Ok(Self::with_built_ins(
             known_folders::local_app_data()?.join(APPLICATION_DIRECTORY_NAME),
+            BUILT_IN_RESOURCES,
         ))
     }
 
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            built_ins: &[],
+        }
+    }
+
+    pub(crate) fn with_built_ins(root: PathBuf, built_ins: &'static [BuiltInResource]) -> Self {
+        Self { root, built_ins }
     }
 
     pub fn root(&self) -> &Path {
@@ -149,6 +190,7 @@ impl StoredSaveRepository {
         description: Option<String>,
         origin: StoredSaveOrigin,
     ) -> Result<CaptureResult, StorageError> {
+        let alias = validate_alias(alias).map_err(StorageError::Alias)?;
         let fingerprint = validate_and_fingerprint(source)?;
         let source_metadata = fs::metadata(source).map_err(|source_error| StorageError::Io {
             operation: "inspect source",
@@ -230,7 +272,7 @@ impl StoredSaveRepository {
                 source,
             })?
         {
-            return Ok(Vec::new());
+            return self.visible_built_ins();
         }
 
         let entries = fs::read_dir(&saves_directory).map_err(|source| StorageError::Io {
@@ -268,6 +310,8 @@ impl StoredSaveRepository {
             saves.push(metadata);
         }
 
+        saves.extend(self.visible_built_ins()?);
+
         saves.sort_by(|left, right| {
             left.created_at
                 .cmp(&right.created_at)
@@ -277,9 +321,36 @@ impl StoredSaveRepository {
     }
 
     pub fn verify(&self, id: &str) -> Result<SaveFingerprint, StorageError> {
+        if let Some(resource) = self.built_in(id) {
+            verify_embedded_payload(resource)?;
+            return Ok(resource.fingerprint);
+        }
         let (metadata, payload_path) = self.load_entry(id)?;
         verify_payload(&payload_path, metadata.fingerprint)?;
         Ok(metadata.fingerprint)
+    }
+
+    pub fn promote_to_preset(&self, id: &str) -> Result<StoredSaveMetadata, StorageError> {
+        self.update_metadata(id, |metadata| {
+            if metadata.kind != StoredSaveKind::Stash {
+                return Err(StorageError::NotAStash(metadata.id.clone()));
+            }
+            metadata.promote_to_preset();
+            Ok(())
+        })
+    }
+
+    pub fn update_details(
+        &self,
+        id: &str,
+        alias: String,
+        description: Option<String>,
+    ) -> Result<StoredSaveMetadata, StorageError> {
+        self.update_metadata(id, |metadata| {
+            metadata.alias = validate_alias(alias).map_err(StorageError::Alias)?;
+            metadata.description = description;
+            Ok(())
+        })
     }
 
     pub(crate) fn materialize_payload(
@@ -287,12 +358,23 @@ impl StoredSaveRepository {
         id: &str,
         destination: &Path,
     ) -> Result<SaveFingerprint, StorageError> {
+        if let Some(resource) = self.built_in(id) {
+            decompress_payload_reader(
+                Cursor::new(resource.compressed_payload),
+                destination,
+                resource.fingerprint,
+            )?;
+            return Ok(resource.fingerprint);
+        }
         let (metadata, payload_path) = self.load_entry(id)?;
         decompress_payload(&payload_path, destination, metadata.fingerprint)?;
         Ok(metadata.fingerprint)
     }
 
     fn load_entry(&self, id: &str) -> Result<(StoredSaveMetadata, PathBuf), StorageError> {
+        if self.built_in(id).is_some() {
+            return Err(StorageError::BuiltInImmutable(id.into()));
+        }
         Uuid::parse_str(id).map_err(|_| StorageError::InvalidMetadata {
             path: self.stored_saves_directory().join(id),
             reason: "stored save ID is not a UUID".into(),
@@ -308,9 +390,188 @@ impl StoredSaveRepository {
         Ok((metadata, directory.join(PAYLOAD_FILE_NAME)))
     }
 
+    fn update_metadata(
+        &self,
+        id: &str,
+        update: impl FnOnce(&mut StoredSaveMetadata) -> Result<(), StorageError>,
+    ) -> Result<StoredSaveMetadata, StorageError> {
+        let (mut metadata, payload_path) = self.load_entry(id)?;
+        verify_payload(&payload_path, metadata.fingerprint)?;
+        update(&mut metadata)?;
+
+        let directory = payload_path
+            .parent()
+            .expect("a stored payload always has a parent");
+        let metadata_path = directory.join(METADATA_FILE_NAME);
+        let temporary_path = directory.join(format!(".{}.metadata.json.next", Uuid::new_v4()));
+        write_metadata(&temporary_path, &metadata)?;
+        if let Err(source) = windows_file::atomic_move(&temporary_path, &metadata_path, true) {
+            let _ = fs::remove_file(&temporary_path);
+            return Err(StorageError::Io {
+                operation: "publish metadata update",
+                path: metadata_path,
+                source,
+            });
+        }
+        Ok(metadata)
+    }
+
+    pub(crate) fn set_built_in_hidden(&self, id: &str, hidden: bool) -> Result<(), StorageError> {
+        if self.built_in(id).is_none() {
+            return Err(StorageError::UnknownBuiltIn(id.into()));
+        }
+        let mut settings = self.read_settings()?;
+        let changed = if hidden {
+            settings.hidden_built_in_ids.insert(id.into())
+        } else {
+            settings.hidden_built_in_ids.remove(id)
+        };
+        if changed {
+            self.write_settings(&settings)?;
+        }
+        Ok(())
+    }
+
+    pub fn built_in_version(&self, id: &str) -> Option<u32> {
+        self.built_in(id).map(|resource| resource.version)
+    }
+
+    fn visible_built_ins(&self) -> Result<Vec<StoredSaveMetadata>, StorageError> {
+        let hidden = self.read_settings()?.hidden_built_in_ids;
+        self.built_ins
+            .iter()
+            .filter(|resource| !hidden.contains(resource.id))
+            .map(built_in_metadata)
+            .collect()
+    }
+
+    fn built_in(&self, id: &str) -> Option<&BuiltInResource> {
+        self.built_ins.iter().find(|resource| resource.id == id)
+    }
+
+    fn read_settings(&self) -> Result<SettingsDocument, StorageError> {
+        let path = self.root.join(SETTINGS_FILE_NAME);
+        if !path.try_exists().map_err(|source| StorageError::Io {
+            operation: "inspect settings",
+            path: path.clone(),
+            source,
+        })? {
+            return Ok(SettingsDocument::default());
+        }
+        let file = File::open(&path).map_err(|source| StorageError::Io {
+            operation: "open settings",
+            path: path.clone(),
+            source,
+        })?;
+        let settings: SettingsDocument =
+            serde_json::from_reader(BufReader::new(file)).map_err(|source| StorageError::Json {
+                path: path.clone(),
+                source,
+            })?;
+        if settings.schema_version != SETTINGS_SCHEMA_VERSION {
+            return Err(StorageError::InvalidMetadata {
+                path,
+                reason: format!("unsupported settings schema {}", settings.schema_version),
+            });
+        }
+        if let Some(id) = settings
+            .hidden_built_in_ids
+            .iter()
+            .find(|id| Uuid::parse_str(id).is_err())
+        {
+            return Err(StorageError::InvalidMetadata {
+                path,
+                reason: format!("hidden built-in ID is not a UUID: {id}"),
+            });
+        }
+        Ok(settings)
+    }
+
+    fn write_settings(&self, settings: &SettingsDocument) -> Result<(), StorageError> {
+        create_directory_all(&self.root)?;
+        let path = self.root.join(SETTINGS_FILE_NAME);
+        let temporary_path = self
+            .root
+            .join(format!(".{}.settings.json.next", Uuid::new_v4()));
+        let serialized =
+            serde_json::to_vec_pretty(settings).map_err(|source| StorageError::Json {
+                path: temporary_path.clone(),
+                source,
+            })?;
+        let mut file = File::create(&temporary_path).map_err(|source| StorageError::Io {
+            operation: "create settings",
+            path: temporary_path.clone(),
+            source,
+        })?;
+        file.write_all(&serialized)
+            .and_then(|_| file.write_all(b"\n"))
+            .and_then(|_| file.sync_all())
+            .map_err(|source| StorageError::Io {
+                operation: "write settings",
+                path: temporary_path.clone(),
+                source,
+            })?;
+        if let Err(source) = windows_file::atomic_move(&temporary_path, &path, true) {
+            let _ = fs::remove_file(&temporary_path);
+            return Err(StorageError::Io {
+                operation: "publish settings",
+                path,
+                source,
+            });
+        }
+        Ok(())
+    }
+
     fn stored_saves_directory(&self) -> PathBuf {
         self.root.join(STORED_SAVES_DIRECTORY_NAME)
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SettingsDocument {
+    schema_version: u32,
+    hidden_built_in_ids: BTreeSet<String>,
+}
+
+impl Default for SettingsDocument {
+    fn default() -> Self {
+        Self {
+            schema_version: SETTINGS_SCHEMA_VERSION,
+            hidden_built_in_ids: BTreeSet::new(),
+        }
+    }
+}
+
+fn built_in_metadata(resource: &BuiltInResource) -> Result<StoredSaveMetadata, StorageError> {
+    let path = embedded_resource_path(resource.id);
+    if Uuid::parse_str(resource.id).is_err() {
+        return Err(StorageError::InvalidMetadata {
+            path,
+            reason: "built-in ID is not a UUID".into(),
+        });
+    }
+    if resource.version == 0 || resource.fingerprint.size != SAVE_FILE_SIZE {
+        return Err(StorageError::InvalidMetadata {
+            path,
+            reason: "built-in version and size must be valid".into(),
+        });
+    }
+    let alias = validate_alias(resource.alias.into()).map_err(StorageError::Alias)?;
+    Ok(StoredSaveMetadata {
+        id: resource.id.into(),
+        kind: StoredSaveKind::Preset,
+        alias,
+        description: resource.description.map(Into::into),
+        origin: StoredSaveOrigin::BuiltIn,
+        created_at: UNIX_EPOCH + Duration::from_millis(resource.created_at_millis),
+        source_filename: resource.source_filename.into(),
+        source_modified_at: None,
+        fingerprint: resource.fingerprint,
+    })
+}
+
+fn embedded_resource_path(id: &str) -> PathBuf {
+    PathBuf::from(format!("embedded-built-in-{id}.dat.gz"))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -505,6 +766,26 @@ fn verify_payload(path: &Path, expected: SaveFingerprint) -> Result<(), StorageE
     Ok(())
 }
 
+fn verify_embedded_payload(resource: &BuiltInResource) -> Result<(), StorageError> {
+    let path = embedded_resource_path(resource.id);
+    let decoder = GzDecoder::new(Cursor::new(resource.compressed_payload));
+    let actual = fingerprint_reader(decoder.take(SAVE_FILE_SIZE + 1)).map_err(|source| {
+        StorageError::Io {
+            operation: "decompress embedded payload",
+            path: path.clone(),
+            source,
+        }
+    })?;
+    if actual != resource.fingerprint {
+        return Err(StorageError::PayloadMismatch {
+            path,
+            expected: resource.fingerprint,
+            actual,
+        });
+    }
+    Ok(())
+}
+
 fn decompress_payload(
     source: &Path,
     destination: &Path,
@@ -515,6 +796,14 @@ fn decompress_payload(
         path: source.to_path_buf(),
         source: source_error,
     })?;
+    decompress_payload_reader(BufReader::new(input), destination, expected)
+}
+
+fn decompress_payload_reader(
+    input: impl BufRead,
+    destination: &Path,
+    expected: SaveFingerprint,
+) -> Result<(), StorageError> {
     let output = File::options()
         .write(true)
         .create_new(true)
@@ -525,7 +814,7 @@ fn decompress_payload(
             source,
         })?;
     let result = {
-        let decoder = GzDecoder::new(BufReader::new(input));
+        let decoder = GzDecoder::new(input);
         let mut output = BufWriter::new(output);
 
         (|| {
@@ -765,5 +1054,43 @@ mod tests {
         );
 
         assert!(matches!(result, Err(StorageError::Io { .. })));
+    }
+
+    #[test]
+    fn promotes_and_edits_metadata_without_rewriting_payload() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let captured = repository
+            .capture(
+                &source,
+                StoredSaveKind::Stash,
+                "Recovery".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+        let payload = repository
+            .stored_saves_directory()
+            .join(&captured.metadata.id)
+            .join(PAYLOAD_FILE_NAME);
+        let original_payload = fs::read(&payload).unwrap();
+
+        let promoted = repository.promote_to_preset(&captured.metadata.id).unwrap();
+        let edited = repository
+            .update_details(
+                &captured.metadata.id,
+                "Practice start".into(),
+                Some("Chapter practice".into()),
+            )
+            .unwrap();
+
+        assert_eq!(StoredSaveKind::Preset, promoted.kind);
+        assert_eq!(StoredSaveKind::Preset, edited.kind);
+        assert_eq!("Practice start", edited.alias);
+        assert_eq!(Some("Chapter practice"), edited.description.as_deref());
+        assert_eq!(captured.metadata.fingerprint, edited.fingerprint);
+        assert_eq!(original_payload, fs::read(payload).unwrap());
+        assert_eq!(vec![edited], repository.list().unwrap());
     }
 }

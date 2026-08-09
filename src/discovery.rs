@@ -5,8 +5,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use uuid::Uuid;
-
+use crate::first_activation::FirstActivationError;
+#[cfg(not(test))]
+use crate::first_activation::suggested_current_filename;
 use crate::known_folders::{self, KnownFolderError};
 
 const SAVE_DIRECTORY_COMPONENTS: [&str; 4] = ["EA Games", "Mirror's Edge", "TdGame", "Savefiles"];
@@ -30,36 +31,37 @@ impl CurrentSave {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CurrentSaveDiscovery {
-    SaveDirectoryMissing {
-        directory: PathBuf,
-    },
-    CurrentMissing {
-        directory: PathBuf,
-    },
+    SaveDirectoryMissing { directory: PathBuf },
+    CurrentMissing { directory: PathBuf },
     CurrentFound(CurrentSave),
-    CurrentAmbiguous {
-        directory: PathBuf,
-        candidates: Vec<PathBuf>,
-    },
 }
 
 #[derive(Debug)]
 pub enum DiscoveryError {
     KnownFolder(KnownFolderError),
+    CurrentFilename(FirstActivationError),
     ReadDirectory {
         directory: PathBuf,
         source: io::Error,
     },
-    InspectEntry {
-        directory: PathBuf,
+    InvalidSaveDirectory(PathBuf),
+    InspectCurrent {
+        path: PathBuf,
         source: io::Error,
     },
+    InvalidCurrentType(PathBuf),
 }
 
 impl fmt::Display for DiscoveryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::KnownFolder(source) => write!(formatter, "failed to locate Documents: {source}"),
+            Self::CurrentFilename(source) => {
+                write!(
+                    formatter,
+                    "failed to determine the Current filename: {source}"
+                )
+            }
             Self::ReadDirectory { directory, source } => {
                 write!(
                     formatter,
@@ -67,11 +69,25 @@ impl fmt::Display for DiscoveryError {
                     directory.display()
                 )
             }
-            Self::InspectEntry { directory, source } => write!(
+            Self::InvalidSaveDirectory(path) => {
+                write!(
+                    formatter,
+                    "save directory path is not a directory: {}",
+                    path.display()
+                )
+            }
+            Self::InspectCurrent { path, source } => write!(
                 formatter,
-                "failed to inspect an entry in {}: {source}",
-                directory.display()
+                "failed to inspect Current at {}: {source}",
+                path.display()
             ),
+            Self::InvalidCurrentType(path) => {
+                write!(
+                    formatter,
+                    "Current path is not a regular file: {}",
+                    path.display()
+                )
+            }
         }
     }
 }
@@ -79,8 +95,12 @@ impl fmt::Display for DiscoveryError {
 impl Error for DiscoveryError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::ReadDirectory { source, .. } | Self::InspectEntry { source, .. } => Some(source),
+            Self::ReadDirectory { source, .. } | Self::InspectCurrent { source, .. } => {
+                Some(source)
+            }
             Self::KnownFolder(source) => Some(source),
+            Self::CurrentFilename(source) => Some(source),
+            Self::InvalidSaveDirectory(_) | Self::InvalidCurrentType(_) => None,
         }
     }
 }
@@ -100,57 +120,40 @@ pub fn discover_current_in_documents(
 ) -> Result<CurrentSaveDiscovery, DiscoveryError> {
     let save_directory = save_directory_in(documents_directory);
 
-    if !save_directory
-        .try_exists()
-        .map_err(|source| DiscoveryError::ReadDirectory {
-            directory: save_directory.clone(),
-            source,
-        })?
-    {
-        return Ok(CurrentSaveDiscovery::SaveDirectoryMissing {
-            directory: save_directory,
-        });
-    }
-
-    let entries =
-        fs::read_dir(&save_directory).map_err(|source| DiscoveryError::ReadDirectory {
-            directory: save_directory.clone(),
-            source,
-        })?;
-    let mut candidates = Vec::new();
-
-    for entry in entries {
-        let entry = entry.map_err(|source| DiscoveryError::InspectEntry {
-            directory: save_directory.clone(),
-            source,
-        })?;
-        let file_type = entry
-            .file_type()
-            .map_err(|source| DiscoveryError::InspectEntry {
+    let directory_metadata = match fs::metadata(&save_directory) {
+        Ok(metadata) => metadata,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            return Ok(CurrentSaveDiscovery::SaveDirectoryMissing {
+                directory: save_directory,
+            });
+        }
+        Err(source) => {
+            return Err(DiscoveryError::ReadDirectory {
                 directory: save_directory.clone(),
                 source,
-            })?;
-
-        if file_type.is_file()
-            && has_dat_extension(&entry.path())
-            && !is_transaction_artifact(&entry.file_name())
-        {
-            candidates.push(entry.path());
+            });
         }
+    };
+    if !directory_metadata.is_dir() {
+        return Err(DiscoveryError::InvalidSaveDirectory(save_directory));
     }
 
-    candidates.sort();
-
-    match candidates.len() {
-        0 => Ok(CurrentSaveDiscovery::CurrentMissing {
-            directory: save_directory,
-        }),
-        1 => Ok(CurrentSaveDiscovery::CurrentFound(CurrentSave {
-            path: candidates.pop().expect("one candidate was found"),
-        })),
-        _ => Ok(CurrentSaveDiscovery::CurrentAmbiguous {
-            directory: save_directory,
-            candidates,
+    let current_path = current_path_in_documents(documents_directory)?;
+    match fs::symlink_metadata(&current_path) {
+        Ok(metadata) if metadata.file_type().is_file() => {
+            Ok(CurrentSaveDiscovery::CurrentFound(CurrentSave {
+                path: current_path,
+            }))
+        }
+        Ok(_) => Err(DiscoveryError::InvalidCurrentType(current_path)),
+        Err(source) if source.kind() == io::ErrorKind::NotFound => {
+            Ok(CurrentSaveDiscovery::CurrentMissing {
+                directory: save_directory,
+            })
+        }
+        Err(source) => Err(DiscoveryError::InspectCurrent {
+            path: current_path,
+            source,
         }),
     }
 }
@@ -163,24 +166,20 @@ pub fn save_directory_in(documents_directory: &Path) -> PathBuf {
     path
 }
 
-fn has_dat_extension(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("dat"))
+pub(crate) fn current_path_in_documents(
+    documents_directory: &Path,
+) -> Result<PathBuf, DiscoveryError> {
+    Ok(save_directory_in(documents_directory).join(current_filename()?))
 }
 
-fn is_transaction_artifact(name: &OsStr) -> bool {
-    const PREFIX: &str = ".mirrors-edge-save-switcher-";
-    const SUFFIXES: [&str; 3] = [".replacement.dat", ".rollback.dat", ".failed.dat"];
+#[cfg(test)]
+fn current_filename() -> Result<String, DiscoveryError> {
+    Ok("Vwings.dat".into())
+}
 
-    let name = name.to_string_lossy();
-    let Some(remainder) = name.strip_prefix(PREFIX) else {
-        return false;
-    };
-    SUFFIXES.iter().any(|suffix| {
-        remainder
-            .strip_suffix(suffix)
-            .is_some_and(|id| Uuid::parse_str(id).is_ok())
-    })
+#[cfg(not(test))]
+fn current_filename() -> Result<String, DiscoveryError> {
+    suggested_current_filename().map_err(DiscoveryError::CurrentFilename)
 }
 
 #[cfg(test)]
@@ -219,6 +218,7 @@ mod tests {
         let directory = create_save_directory(documents.path());
         fs::write(directory.join("notes.txt"), b"not a save").unwrap();
         fs::create_dir(directory.join("folder.dat")).unwrap();
+        fs::write(directory.join("history.dat"), b"backup").unwrap();
 
         let result = discover_current_in_documents(documents.path()).unwrap();
 
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn finds_one_dat_file_case_insensitively() {
+    fn finds_the_account_named_current_case_insensitively() {
         let documents = TempDir::new().unwrap();
         let directory = create_save_directory(documents.path());
         let save = directory.join("Vwings.DAT");
@@ -240,55 +240,44 @@ mod tests {
         let result = discover_current_in_documents(documents.path()).unwrap();
 
         assert_eq!(
-            CurrentSaveDiscovery::CurrentFound(CurrentSave { path: save }),
+            CurrentSaveDiscovery::CurrentFound(CurrentSave {
+                path: directory.join("Vwings.dat")
+            }),
             result
         );
     }
 
     #[test]
-    fn reports_all_candidates_when_current_is_ambiguous() {
+    fn ignores_other_dat_files_when_account_named_current_exists() {
         let documents = TempDir::new().unwrap();
         let directory = create_save_directory(documents.path());
-        let first = directory.join("Alice.dat");
-        let second = directory.join("Vwings.dat");
-        fs::write(&second, b"second").unwrap();
-        fs::write(&first, b"first").unwrap();
+        let backup = directory.join("Alice.dat");
+        let current = directory.join("Vwings.dat");
+        fs::write(&current, b"current").unwrap();
+        fs::write(&backup, b"backup").unwrap();
 
         let result = discover_current_in_documents(documents.path()).unwrap();
 
         assert_eq!(
-            CurrentSaveDiscovery::CurrentAmbiguous {
-                directory,
-                candidates: vec![first, second]
-            },
+            CurrentSaveDiscovery::CurrentFound(CurrentSave { path: current }),
             result
         );
     }
 
     #[test]
-    fn ignores_owned_transaction_artifacts_but_not_similar_user_files() {
+    fn reports_current_missing_when_only_backup_and_transaction_files_exist() {
         let documents = TempDir::new().unwrap();
         let directory = create_save_directory(documents.path());
-        let current = directory.join("Vwings.dat");
-        fs::write(&current, b"current").unwrap();
-        let id = Uuid::new_v4();
         fs::write(
-            directory.join(format!(".mirrors-edge-save-switcher-{id}.replacement.dat")),
+            directory.join(".mirrors-edge-save-manager-backup.replacement.dat"),
             b"staging",
         )
         .unwrap();
-        let similar = directory.join(".mirrors-edge-save-switcher-not-a-uuid.rollback.dat");
-        fs::write(&similar, b"user file").unwrap();
+        fs::write(directory.join("old-run.dat"), b"backup").unwrap();
 
         let result = discover_current_in_documents(documents.path()).unwrap();
 
-        assert_eq!(
-            CurrentSaveDiscovery::CurrentAmbiguous {
-                directory,
-                candidates: vec![similar, current]
-            },
-            result
-        );
+        assert_eq!(CurrentSaveDiscovery::CurrentMissing { directory }, result);
     }
 
     #[test]

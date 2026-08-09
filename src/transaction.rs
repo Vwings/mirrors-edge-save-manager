@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::save_file::SaveFingerprint;
 use crate::windows_file;
@@ -11,31 +11,38 @@ use crate::windows_file;
 pub(crate) const TRANSACTIONS_DIRECTORY_NAME: &str = "transactions";
 pub(crate) const JOURNAL_SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ApplyPhase {
     Prepared,
     Replacing,
     Replaced,
     Verified,
+    RollingBack,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ActivationPhase {
+    Prepared,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct ApplyJournal {
-    schema_version: u32,
-    transaction_id: String,
-    operation: &'static str,
-    phase: ApplyPhase,
+    pub(crate) schema_version: u32,
+    pub(crate) transaction_id: String,
+    pub(crate) operation: String,
+    pub(crate) phase: ApplyPhase,
     created_at_unix_millis: u64,
     updated_at_unix_millis: u64,
-    stored_save_id: String,
-    automatic_stash_id: String,
-    current_path: PathBuf,
-    replacement_path: PathBuf,
-    rollback_path: PathBuf,
-    failed_replacement_path: PathBuf,
-    original_fingerprint: JournalFingerprint,
-    replacement_fingerprint: JournalFingerprint,
+    pub(crate) stored_save_id: String,
+    pub(crate) automatic_stash_id: String,
+    pub(crate) current_path: PathBuf,
+    pub(crate) replacement_path: PathBuf,
+    pub(crate) rollback_path: PathBuf,
+    pub(crate) failed_replacement_path: PathBuf,
+    pub(crate) original_fingerprint: JournalFingerprint,
+    pub(crate) replacement_fingerprint: JournalFingerprint,
 }
 
 impl ApplyJournal {
@@ -55,7 +62,7 @@ impl ApplyJournal {
         Ok(Self {
             schema_version: JOURNAL_SCHEMA_VERSION,
             transaction_id,
-            operation: "apply",
+            operation: "apply".into(),
             phase: ApplyPhase::Prepared,
             created_at_unix_millis: now,
             updated_at_unix_millis: now,
@@ -77,10 +84,48 @@ impl ApplyJournal {
     }
 }
 
-#[derive(Debug, Serialize)]
-struct JournalFingerprint {
-    size: u64,
-    sha256: String,
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct ActivationJournal {
+    pub(crate) schema_version: u32,
+    pub(crate) transaction_id: String,
+    pub(crate) operation: String,
+    pub(crate) phase: ActivationPhase,
+    created_at_unix_millis: u64,
+    updated_at_unix_millis: u64,
+    pub(crate) stored_save_id: String,
+    pub(crate) current_path: PathBuf,
+    pub(crate) staging_path: PathBuf,
+    pub(crate) replacement_fingerprint: JournalFingerprint,
+}
+
+impl ActivationJournal {
+    pub(crate) fn new(
+        transaction_id: String,
+        stored_save_id: String,
+        current_path: PathBuf,
+        staging_path: PathBuf,
+        replacement_fingerprint: SaveFingerprint,
+    ) -> io::Result<Self> {
+        let now = unix_millis()?;
+        Ok(Self {
+            schema_version: JOURNAL_SCHEMA_VERSION,
+            transaction_id,
+            operation: "activate".into(),
+            phase: ActivationPhase::Prepared,
+            created_at_unix_millis: now,
+            updated_at_unix_millis: now,
+            stored_save_id,
+            current_path,
+            staging_path,
+            replacement_fingerprint: replacement_fingerprint.into(),
+        })
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct JournalFingerprint {
+    pub(crate) size: u64,
+    pub(crate) sha256: String,
 }
 
 impl From<SaveFingerprint> for JournalFingerprint {
@@ -89,6 +134,17 @@ impl From<SaveFingerprint> for JournalFingerprint {
             size: value.size,
             sha256: value.sha256.to_string(),
         }
+    }
+}
+
+impl TryFrom<&JournalFingerprint> for SaveFingerprint {
+    type Error = crate::save_file::ParseSaveHashError;
+
+    fn try_from(value: &JournalFingerprint) -> Result<Self, Self::Error> {
+        Ok(Self {
+            size: value.size,
+            sha256: value.sha256.parse()?,
+        })
     }
 }
 
@@ -108,7 +164,7 @@ impl JournalStore {
         }
     }
 
-    pub(crate) fn publish(&mut self, journal: &ApplyJournal) -> io::Result<()> {
+    pub(crate) fn publish(&mut self, journal: &impl Serialize) -> io::Result<()> {
         let directory = self
             .path
             .parent()

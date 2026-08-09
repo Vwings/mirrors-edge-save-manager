@@ -1,10 +1,10 @@
 [package]
-name = "mirrors-edge-save-switcher"
+name = "mirrors-edge-save-manager"
 version = "0.1.0"
 edition = "2024"
-description = "An unofficial save switcher for Mirror's Edge"
+description = "An unofficial save manager for Mirror's Edge"
 license = "GPL-3.0-only"
-repository = "https://github.com/Vwings/mirrors-edge-save-switcher"
+repository = "https://github.com/Vwings/mirrors-edge-save-manager"
 
 [dependencies]
 flate2 = "1.1.9"
@@ -27,7 +27,9 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
     "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
     "Win32_UI_Shell",
 ] }
 

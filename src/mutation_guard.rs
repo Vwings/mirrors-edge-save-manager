@@ -1,7 +1,9 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::game_process::{self, GameProcessError};
+#[cfg(not(test))]
+use crate::game_process;
+use crate::game_process::GameProcessError;
 use crate::operation_lock::{OperationLock, OperationLockError};
 
 #[cfg(test)]
@@ -19,7 +21,7 @@ impl fmt::Display for MutationGuardError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::OperationInProgress => {
-                formatter.write_str("another save switcher operation is already in progress")
+                formatter.write_str("another save manager operation is already in progress")
             }
             Self::OperationLock(source) => write!(formatter, "operation lock failed: {source}"),
             Self::GameProcess(source) => write!(formatter, "game process check failed: {source}"),
@@ -59,6 +61,10 @@ pub struct MutationGuard {
 
 impl MutationGuard {
     pub fn acquire() -> Result<Self, MutationGuardError> {
+        #[cfg(test)]
+        return Self::acquire_with(|| Ok(false));
+
+        #[cfg(not(test))]
         Self::acquire_with(game_process::is_game_running)
     }
 

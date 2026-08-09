@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 
-const MUTATION_MUTEX_NAME: &str = "Local\\Vwings.MirrorsEdgeSaveSwitcher.Mutation.v1";
+const MUTATION_MUTEX_NAME: &str = "Local\\MirrorsEdgeSaveManager.Mutation.v1";
 
 #[derive(Debug)]
 pub enum OperationLockError {
@@ -124,7 +124,7 @@ mod tests {
 
     fn unique_lock_name() -> String {
         format!(
-            "Local\\Vwings.MirrorsEdgeSaveSwitcher.Test.{}.{}",
+            "Local\\MirrorsEdgeSaveManager.Test.{}.{}",
             std::process::id(),
             NEXT_LOCK_ID.fetch_add(1, Ordering::Relaxed)
         )

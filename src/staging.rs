@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::save_file::SaveFingerprint;
 use crate::storage::{StorageError, StoredSaveRepository};
 
-const REPLACEMENT_PREFIX: &str = ".mirrors-edge-save-switcher-";
+const REPLACEMENT_PREFIX: &str = ".mirrors-edge-save-manager-";
 const REPLACEMENT_SUFFIX: &str = ".replacement.dat";
 
 #[derive(Debug)]

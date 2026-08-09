@@ -2,7 +2,7 @@
 
 ## Project Context
 
-Mirror's Edge Save Switcher is a Windows Rust application for safely storing
+Mirror's Edge Save Manager is a Windows Rust application for safely storing
 and replacing the original Mirror's Edge PC save file. The repository began as
 a Slint, FemtoVG, Windows packaging, and binary-size prototype. The current UI
 is not the final product design.
@@ -47,16 +47,18 @@ Read these files before making changes:
 - The native path is the Windows Documents known folder followed by:
   `EA Games\Mirror's Edge\TdGame\Savefiles\`.
 - Do not assume Documents is physically under `%USERPROFILE%\Documents`.
-- The first version expects exactly one `.dat` file in the save directory.
-- Zero `.dat` files is a missing-Current state.
-- More than one `.dat` file is ambiguous and must block replacement.
+- Current is the Windows account-named `<username>.dat` file in the save
+  directory.
+- Other `.dat` files are user-owned history or backups and must be ignored.
+- A missing account-named `.dat` file is a missing-Current state even when other
+  `.dat` files exist.
 - Preserve the active filename when applying another save.
 - Never delete the original Current before a verified replacement and rollback
   path exist.
 - Detect `MirrorsEdge.exe` and block all mutating actions while it is running.
 - Recheck both the process state and Current fingerprint immediately before
   replacement.
-- Use an application-level lock so multiple switcher instances cannot mutate
+- Use an application-level lock so multiple manager instances cannot mutate
   the same save concurrently.
 - Keep an operation journal and make interrupted operations recoverable at
   startup.
@@ -70,7 +72,7 @@ files is valid; changing unknown offsets is not.
 The planned user data root is:
 
 ```text
-%LOCALAPPDATA%\Mirror's Edge Save Switcher\
+%LOCALAPPDATA%\Mirror's Edge Save Manager\
 ```
 
 The current design favors one compressed payload and one metadata file per
@@ -83,18 +85,19 @@ filesystem timestamps do not identify a StoredSave.
 Built-in saves may be shipped as compressed verified resources. The provided
 samples are fixed at `9,134,256` bytes but compress to roughly 9--25 KiB. User
 imports belong in LocalAppData. Hiding a built-in Preset must not destroy its
-embedded source.
+embedded source. Preserve the asset declaration, risk acceptance, and exact
+fingerprints in `resources/built-in/NOTICE.md` when changing bundled saves.
 
 ## Save Format Research
 
-Sample files are under `savefile_examples/`. Current observations are recorded
-in `docs/design.md`; they are not a complete format specification. Preserve
-the original samples and never overwrite them.
+Local research files are under `scratch/save-format/samples/`. Confirmed
+observations are recorded in `docs/save-format-research.md`; they are not a
+complete format specification. Preserve the original samples and never
+overwrite them.
 
-Controlled before/after samples are required before attempting to generate the
-one-star time-trial save. Format-generation experiments must remain separate
-from the copy-and-restore path so a reverse-engineering failure cannot damage
-user saves.
+Format research is paused. Any future generation experiment requires controlled
+evidence and must remain separate from the copy-and-restore path so a
+reverse-engineering failure cannot damage user saves.
 
 ## Implementation Guidance
 
@@ -104,7 +107,7 @@ user saves.
 - Use structured metadata serialization and validate all paths and identifiers
   at the boundary.
 - Make failure states explicit and actionable for users.
-- Add tests for missing or ambiguous discovery, hashing, duplicate warnings,
+- Add tests for missing account-named discovery, ignored backup files, hashing, duplicate warnings,
   process locks, staging failures, replacement failures, rollback, and startup
   transaction recovery.
 - Do not add compatibility code without a concrete persisted-data or external

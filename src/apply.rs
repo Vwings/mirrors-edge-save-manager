@@ -6,10 +6,14 @@ use std::path::{Path, PathBuf};
 
 use uuid::Uuid;
 
+use crate::alias::{AliasError, resolve_current_alias};
 use crate::discovery::{self, CurrentSaveDiscovery, DiscoveryError};
-use crate::game_process::{self, GameProcessError};
+#[cfg(not(test))]
+use crate::game_process;
+use crate::game_process::GameProcessError;
 use crate::known_folders;
 use crate::mutation_guard::{MutationGuard, MutationGuardError};
+use crate::recovery::{RecoveryError, unfinished_journals};
 use crate::save_file::{SaveFileError, SaveFingerprint, validate_and_fingerprint};
 use crate::staging::{StagingError, stage_stored_save};
 use crate::storage::{CaptureResult, StorageError, StoredSaveRepository};
@@ -17,11 +21,11 @@ use crate::stored_save::{StoredSaveKind, StoredSaveOrigin};
 use crate::transaction::{ApplyJournal, ApplyPhase, JournalStore};
 use crate::windows_file;
 
-const ARTIFACT_PREFIX: &str = ".mirrors-edge-save-switcher-";
+const ARTIFACT_PREFIX: &str = ".mirrors-edge-save-manager-";
 
 pub struct ApplyRequest<'a> {
     pub stored_save_id: &'a str,
-    pub automatic_stash_alias: String,
+    pub automatic_stash_alias: Option<String>,
     pub automatic_stash_description: Option<String>,
 }
 
@@ -48,11 +52,13 @@ pub struct ArtifactSnapshot {
 
 #[derive(Debug)]
 pub enum ApplyError {
+    Alias(AliasError),
     MutationGuard(MutationGuardError),
+    Recovery(RecoveryError),
+    RecoveryRequired(Vec<PathBuf>),
     Discovery(DiscoveryError),
     SaveDirectoryMissing(PathBuf),
     CurrentMissing(PathBuf),
-    CurrentAmbiguous(Vec<PathBuf>),
     CurrentPathChanged {
         expected: PathBuf,
         actual: PathBuf,
@@ -76,6 +82,11 @@ pub enum ApplyError {
         source: io::Error,
         artifacts: Box<ArtifactSnapshot>,
     },
+    ReplacementVerificationRolledBack(String),
+    RollbackFailed {
+        verification: String,
+        rollback: Box<ApplyError>,
+    },
     UnexpectedArtifacts(Box<ArtifactSnapshot>),
     Cleanup {
         path: PathBuf,
@@ -95,7 +106,13 @@ pub fn apply(
 impl fmt::Display for ApplyError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Alias(source) => write!(formatter, "invalid automatic Stash alias: {source}"),
             Self::MutationGuard(source) => write!(formatter, "mutation is blocked: {source}"),
+            Self::Recovery(source) => write!(formatter, "transaction scan failed: {source}"),
+            Self::RecoveryRequired(paths) => write!(
+                formatter,
+                "unfinished transaction recovery is required before apply: {paths:?}"
+            ),
             Self::Discovery(source) => write!(formatter, "Current discovery failed: {source}"),
             Self::SaveDirectoryMissing(path) => {
                 write!(
@@ -106,12 +123,6 @@ impl fmt::Display for ApplyError {
             }
             Self::CurrentMissing(path) => {
                 write!(formatter, "Current save is missing from {}", path.display())
-            }
-            Self::CurrentAmbiguous(paths) => {
-                write!(
-                    formatter,
-                    "multiple Current candidates were found: {paths:?}"
-                )
             }
             Self::CurrentPathChanged { expected, actual } => write!(
                 formatter,
@@ -149,6 +160,17 @@ impl fmt::Display for ApplyError {
             Self::Replace { source, .. } => {
                 write!(formatter, "Current replacement failed: {source}")
             }
+            Self::ReplacementVerificationRolledBack(reason) => write!(
+                formatter,
+                "replacement verification failed and the original Current was restored: {reason}"
+            ),
+            Self::RollbackFailed {
+                verification,
+                rollback,
+            } => write!(
+                formatter,
+                "replacement verification failed ({verification}) and rollback failed: {rollback}"
+            ),
             Self::UnexpectedArtifacts(_) => {
                 formatter.write_str("replacement produced an unexpected artifact state")
             }
@@ -162,7 +184,9 @@ impl fmt::Display for ApplyError {
 impl Error for ApplyError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Alias(source) => Some(source),
             Self::MutationGuard(source) => Some(source),
+            Self::Recovery(source) => Some(source),
             Self::Discovery(source) => Some(source),
             Self::GameProcess(source) => Some(source),
             Self::SaveFile(source) => Some(source),
@@ -171,15 +195,91 @@ impl Error for ApplyError {
             Self::Journal { source, .. }
             | Self::Replace { source, .. }
             | Self::Cleanup { source, .. } => Some(source),
-            Self::SaveDirectoryMissing(_)
+            Self::RollbackFailed { rollback, .. } => Some(rollback),
+            Self::RecoveryRequired(_)
+            | Self::SaveDirectoryMissing(_)
             | Self::CurrentMissing(_)
-            | Self::CurrentAmbiguous(_)
             | Self::CurrentPathChanged { .. }
             | Self::CurrentFingerprintChanged { .. }
             | Self::GameRunning
             | Self::ArtifactAlreadyExists(_)
+            | Self::ReplacementVerificationRolledBack(_)
             | Self::UnexpectedArtifacts(_) => None,
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ApplyBoundary {
+    PublishPrepared,
+    PublishReplacing,
+    ReplaceCurrent,
+    PublishReplaced,
+    VerifyReplacement,
+    PublishVerified,
+    CommitRollbackCleanup,
+    CommitJournalCleanup,
+    PublishRollingBack,
+    ReplaceRollback,
+    VerifyRollback,
+    RollbackFailedCleanup,
+    RollbackJournalCleanup,
+}
+
+trait ApplyOperations {
+    fn publish(
+        &self,
+        store: &mut JournalStore,
+        journal: &ApplyJournal,
+        boundary: ApplyBoundary,
+    ) -> io::Result<()>;
+    fn replace(
+        &self,
+        current: &Path,
+        replacement: &Path,
+        rollback: &Path,
+        boundary: ApplyBoundary,
+    ) -> io::Result<()>;
+    fn validate(
+        &self,
+        path: &Path,
+        boundary: ApplyBoundary,
+    ) -> Result<SaveFingerprint, SaveFileError>;
+    fn remove(&self, path: &Path, boundary: ApplyBoundary) -> io::Result<()>;
+}
+
+struct SystemApplyOperations;
+
+impl ApplyOperations for SystemApplyOperations {
+    fn publish(
+        &self,
+        store: &mut JournalStore,
+        journal: &ApplyJournal,
+        _boundary: ApplyBoundary,
+    ) -> io::Result<()> {
+        store.publish(journal)
+    }
+
+    fn replace(
+        &self,
+        current: &Path,
+        replacement: &Path,
+        rollback: &Path,
+        _boundary: ApplyBoundary,
+    ) -> io::Result<()> {
+        windows_file::replace_file(current, replacement, rollback)
+    }
+
+    fn validate(
+        &self,
+        path: &Path,
+        _boundary: ApplyBoundary,
+    ) -> Result<SaveFingerprint, SaveFileError> {
+        validate_and_fingerprint(path)
+    }
+
+    fn remove(&self, path: &Path, _boundary: ApplyBoundary) -> io::Result<()> {
+        fs::remove_file(path)
     }
 }
 
@@ -188,25 +288,54 @@ pub fn apply_in_documents(
     documents_directory: &Path,
     request: ApplyRequest<'_>,
 ) -> Result<ApplyResult, ApplyError> {
-    apply_in_documents_with_before_recheck(repository, documents_directory, request, || {})
+    apply_in_documents_with_operations(
+        repository,
+        documents_directory,
+        request,
+        || {},
+        &SystemApplyOperations,
+    )
 }
 
+#[cfg(all(test, windows))]
 fn apply_in_documents_with_before_recheck(
     repository: &StoredSaveRepository,
     documents_directory: &Path,
     request: ApplyRequest<'_>,
     before_recheck: impl FnOnce(),
 ) -> Result<ApplyResult, ApplyError> {
+    apply_in_documents_with_operations(
+        repository,
+        documents_directory,
+        request,
+        before_recheck,
+        &SystemApplyOperations,
+    )
+}
+
+fn apply_in_documents_with_operations(
+    repository: &StoredSaveRepository,
+    documents_directory: &Path,
+    request: ApplyRequest<'_>,
+    before_recheck: impl FnOnce(),
+    operations: &impl ApplyOperations,
+) -> Result<ApplyResult, ApplyError> {
     let _guard = MutationGuard::acquire().map_err(ApplyError::MutationGuard)?;
+    let unfinished = unfinished_journals(repository.root()).map_err(ApplyError::Recovery)?;
+    if !unfinished.is_empty() {
+        return Err(ApplyError::RecoveryRequired(unfinished));
+    }
     let current = require_current(discovery::discover_current_in_documents(
         documents_directory,
     )?)?;
     let current_path = current.path().to_path_buf();
     let original_fingerprint = validate_and_fingerprint(&current_path)?;
+    let automatic_stash_alias =
+        resolve_current_alias(request.automatic_stash_alias, "Stash").map_err(ApplyError::Alias)?;
     let automatic_stash = repository.capture(
         &current_path,
         StoredSaveKind::Stash,
-        request.automatic_stash_alias,
+        automatic_stash_alias,
         request.automatic_stash_description,
         StoredSaveOrigin::Current,
     )?;
@@ -234,7 +363,9 @@ fn apply_in_documents_with_before_recheck(
     )
     .map_err(|source| journal_error("create", repository, &transaction_id, source))?;
     let mut journal_store = JournalStore::new(repository.root(), &transaction_id);
-    if let Err(source) = journal_store.publish(&journal) {
+    if let Err(source) =
+        operations.publish(&mut journal_store, &journal, ApplyBoundary::PublishPrepared)
+    {
         remove_file(&staged.path)?;
         return Err(journal_error(
             "publish",
@@ -245,7 +376,7 @@ fn apply_in_documents_with_before_recheck(
     }
 
     before_recheck();
-    match game_process::is_game_running() {
+    match is_game_running_before_replace() {
         Ok(true) => {
             abort_before_replace(staged.path, journal_store)?;
             return Err(ApplyError::GameRunning);
@@ -295,10 +426,19 @@ fn apply_in_documents_with_before_recheck(
     journal
         .set_phase(ApplyPhase::Replacing)
         .map_err(|source| journal_error("update", repository, &transaction_id, source))?;
-    journal_store
-        .publish(&journal)
+    operations
+        .publish(
+            &mut journal_store,
+            &journal,
+            ApplyBoundary::PublishReplacing,
+        )
         .map_err(|source| journal_error("publish", repository, &transaction_id, source))?;
-    if let Err(source) = windows_file::replace_file(&current_path, &staged.path, &rollback_path) {
+    if let Err(source) = operations.replace(
+        &current_path,
+        &staged.path,
+        &rollback_path,
+        ApplyBoundary::ReplaceCurrent,
+    ) {
         return Err(ApplyError::Replace {
             source,
             artifacts: Box::new(inspect_artifacts(
@@ -327,26 +467,58 @@ fn apply_in_documents_with_before_recheck(
     journal
         .set_phase(ApplyPhase::Replaced)
         .map_err(|source| journal_error("update", repository, &transaction_id, source))?;
-    journal_store
-        .publish(&journal)
+    operations
+        .publish(&mut journal_store, &journal, ApplyBoundary::PublishReplaced)
         .map_err(|source| journal_error("publish", repository, &transaction_id, source))?;
-    let applied_fingerprint = validate_and_fingerprint(&current_path)?;
-    if applied_fingerprint != staged.fingerprint {
-        return Err(ApplyError::CurrentFingerprintChanged {
-            expected: staged.fingerprint,
-            actual: applied_fingerprint,
-        });
-    }
+    let applied_fingerprint =
+        match operations.validate(&current_path, ApplyBoundary::VerifyReplacement) {
+            Ok(fingerprint) if fingerprint == staged.fingerprint => fingerprint,
+            Ok(fingerprint) => {
+                let reason = format!("expected {:?}, got {fingerprint:?}", staged.fingerprint);
+                return rollback_verification_failure(
+                    repository,
+                    operations,
+                    &mut journal,
+                    journal_store,
+                    &current_path,
+                    &staged.path,
+                    &rollback_path,
+                    &failed_replacement_path,
+                    original_fingerprint,
+                    staged.fingerprint,
+                    reason,
+                );
+            }
+            Err(source) => {
+                return rollback_verification_failure(
+                    repository,
+                    operations,
+                    &mut journal,
+                    journal_store,
+                    &current_path,
+                    &staged.path,
+                    &rollback_path,
+                    &failed_replacement_path,
+                    original_fingerprint,
+                    staged.fingerprint,
+                    source.to_string(),
+                );
+            }
+        };
     journal
         .set_phase(ApplyPhase::Verified)
         .map_err(|source| journal_error("update", repository, &transaction_id, source))?;
-    journal_store
-        .publish(&journal)
+    operations
+        .publish(&mut journal_store, &journal, ApplyBoundary::PublishVerified)
         .map_err(|source| journal_error("publish", repository, &transaction_id, source))?;
-    remove_file(&rollback_path)?;
+    remove_file_with(
+        operations,
+        &rollback_path,
+        ApplyBoundary::CommitRollbackCleanup,
+    )?;
     let journal_path = journal_store.path().to_path_buf();
-    journal_store
-        .remove()
+    operations
+        .remove(&journal_path, ApplyBoundary::CommitJournalCleanup)
         .map_err(|source| ApplyError::Cleanup {
             path: journal_path,
             source,
@@ -358,6 +530,107 @@ fn apply_in_documents_with_before_recheck(
     })
 }
 
+#[cfg(test)]
+fn is_game_running_before_replace() -> Result<bool, GameProcessError> {
+    Ok(false)
+}
+
+#[cfg(not(test))]
+fn is_game_running_before_replace() -> Result<bool, GameProcessError> {
+    game_process::is_game_running()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rollback_verification_failure(
+    repository: &StoredSaveRepository,
+    operations: &impl ApplyOperations,
+    journal: &mut ApplyJournal,
+    mut journal_store: JournalStore,
+    current_path: &Path,
+    replacement_path: &Path,
+    rollback_path: &Path,
+    failed_replacement_path: &Path,
+    original_fingerprint: SaveFingerprint,
+    replacement_fingerprint: SaveFingerprint,
+    verification: String,
+) -> Result<ApplyResult, ApplyError> {
+    let rollback = (|| {
+        journal
+            .set_phase(ApplyPhase::RollingBack)
+            .map_err(|source| {
+                journal_error("update", repository, &journal.transaction_id, source)
+            })?;
+        operations
+            .publish(
+                &mut journal_store,
+                journal,
+                ApplyBoundary::PublishRollingBack,
+            )
+            .map_err(|source| {
+                journal_error("publish", repository, &journal.transaction_id, source)
+            })?;
+        operations
+            .replace(
+                current_path,
+                rollback_path,
+                failed_replacement_path,
+                ApplyBoundary::ReplaceRollback,
+            )
+            .map_err(|source| ApplyError::Replace {
+                source,
+                artifacts: Box::new(inspect_artifacts(
+                    current_path,
+                    replacement_path,
+                    rollback_path,
+                    failed_replacement_path,
+                )),
+            })?;
+        let artifacts = inspect_artifacts(
+            current_path,
+            replacement_path,
+            rollback_path,
+            failed_replacement_path,
+        );
+        if artifacts.current != ArtifactState::Fingerprint(original_fingerprint)
+            || artifacts.replacement != ArtifactState::Missing
+            || artifacts.rollback != ArtifactState::Missing
+            || artifacts.failed_replacement != ArtifactState::Fingerprint(replacement_fingerprint)
+        {
+            return Err(ApplyError::UnexpectedArtifacts(Box::new(artifacts)));
+        }
+        let restored = operations
+            .validate(current_path, ApplyBoundary::VerifyRollback)
+            .map_err(ApplyError::SaveFile)?;
+        if restored != original_fingerprint {
+            return Err(ApplyError::CurrentFingerprintChanged {
+                expected: original_fingerprint,
+                actual: restored,
+            });
+        }
+        remove_file_with(
+            operations,
+            failed_replacement_path,
+            ApplyBoundary::RollbackFailedCleanup,
+        )?;
+        let journal_path = journal_store.path().to_path_buf();
+        operations
+            .remove(&journal_path, ApplyBoundary::RollbackJournalCleanup)
+            .map_err(|source| ApplyError::Cleanup {
+                path: journal_path,
+                source,
+            })?;
+        Ok(())
+    })();
+
+    match rollback {
+        Ok(()) => Err(ApplyError::ReplacementVerificationRolledBack(verification)),
+        Err(rollback) => Err(ApplyError::RollbackFailed {
+            verification,
+            rollback: Box::new(rollback),
+        }),
+    }
+}
+
 fn require_current(discovery: CurrentSaveDiscovery) -> Result<discovery::CurrentSave, ApplyError> {
     match discovery {
         CurrentSaveDiscovery::CurrentFound(current) => Ok(current),
@@ -366,9 +639,6 @@ fn require_current(discovery: CurrentSaveDiscovery) -> Result<discovery::Current
         }
         CurrentSaveDiscovery::CurrentMissing { directory } => {
             Err(ApplyError::CurrentMissing(directory))
-        }
-        CurrentSaveDiscovery::CurrentAmbiguous { candidates, .. } => {
-            Err(ApplyError::CurrentAmbiguous(candidates))
         }
     }
 }
@@ -410,6 +680,19 @@ fn remove_file(path: &Path) -> Result<(), ApplyError> {
         path: path.to_path_buf(),
         source,
     })
+}
+
+fn remove_file_with(
+    operations: &impl ApplyOperations,
+    path: &Path,
+    boundary: ApplyBoundary,
+) -> Result<(), ApplyError> {
+    operations
+        .remove(path, boundary)
+        .map_err(|source| ApplyError::Cleanup {
+            path: path.to_path_buf(),
+            source,
+        })
 }
 
 fn journal_error(
@@ -490,6 +773,124 @@ mod tests {
 
     use super::*;
 
+    struct FaultOperations {
+        boundaries: Vec<ApplyBoundary>,
+    }
+
+    impl FaultOperations {
+        fn new(boundaries: &[ApplyBoundary]) -> Self {
+            Self {
+                boundaries: boundaries.to_vec(),
+            }
+        }
+
+        fn fail(&self, boundary: ApplyBoundary) -> io::Result<()> {
+            if self.boundaries.contains(&boundary) {
+                Err(io::Error::other("injected apply failure"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl ApplyOperations for FaultOperations {
+        fn publish(
+            &self,
+            store: &mut JournalStore,
+            journal: &ApplyJournal,
+            boundary: ApplyBoundary,
+        ) -> io::Result<()> {
+            self.fail(boundary)?;
+            SystemApplyOperations.publish(store, journal, boundary)
+        }
+
+        fn replace(
+            &self,
+            current: &Path,
+            replacement: &Path,
+            rollback: &Path,
+            boundary: ApplyBoundary,
+        ) -> io::Result<()> {
+            self.fail(boundary)?;
+            SystemApplyOperations.replace(current, replacement, rollback, boundary)
+        }
+
+        fn validate(
+            &self,
+            path: &Path,
+            boundary: ApplyBoundary,
+        ) -> Result<SaveFingerprint, SaveFileError> {
+            self.fail(boundary).map_err(|source| SaveFileError::Read {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            SystemApplyOperations.validate(path, boundary)
+        }
+
+        fn remove(&self, path: &Path, boundary: ApplyBoundary) -> io::Result<()> {
+            self.fail(boundary)?;
+            SystemApplyOperations.remove(path, boundary)
+        }
+    }
+
+    struct ApplyTestContext {
+        _directory: TempDir,
+        repository: StoredSaveRepository,
+        documents: PathBuf,
+        current: PathBuf,
+        replacement_id: String,
+        original_fingerprint: SaveFingerprint,
+        replacement_fingerprint: SaveFingerprint,
+    }
+
+    impl ApplyTestContext {
+        fn new() -> Self {
+            let directory = TempDir::new().unwrap();
+            let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+            let replacement_source = directory.path().join("replacement.dat");
+            create_save(&replacement_source, 2);
+            let replacement = repository
+                .capture(
+                    &replacement_source,
+                    StoredSaveKind::Preset,
+                    "Practice".into(),
+                    None,
+                    StoredSaveOrigin::Imported,
+                )
+                .unwrap();
+            let documents = directory.path().join("Documents");
+            let save_directory = save_directory_in(&documents);
+            fs::create_dir_all(&save_directory).unwrap();
+            let current = save_directory.join("Vwings.dat");
+            create_save(&current, 1);
+            let original_fingerprint = validate_and_fingerprint(&current).unwrap();
+
+            Self {
+                _directory: directory,
+                repository,
+                documents,
+                current,
+                replacement_id: replacement.metadata.id,
+                original_fingerprint,
+                replacement_fingerprint: replacement.metadata.fingerprint,
+            }
+        }
+
+        fn apply_with(&self, operations: &impl ApplyOperations) -> Result<ApplyResult, ApplyError> {
+            apply_in_documents_with_operations(
+                &self.repository,
+                &self.documents,
+                ApplyRequest {
+                    stored_save_id: &self.replacement_id,
+                    automatic_stash_alias: Some("Before Practice".into()),
+                    automatic_stash_description: None,
+                },
+                || {},
+                operations,
+            )
+        }
+    }
+
     fn create_save(path: &Path, marker: u8) {
         let mut file = File::create(path).unwrap();
         file.set_len(SAVE_FILE_SIZE).unwrap();
@@ -526,7 +927,7 @@ mod tests {
             &documents,
             ApplyRequest {
                 stored_save_id: &replacement.metadata.id,
-                automatic_stash_alias: "Before Practice".into(),
+                automatic_stash_alias: Some("Before Practice".into()),
                 automatic_stash_description: None,
             },
         )
@@ -579,7 +980,7 @@ mod tests {
             &documents,
             ApplyRequest {
                 stored_save_id: &replacement.metadata.id,
-                automatic_stash_alias: "Before Practice".into(),
+                automatic_stash_alias: Some("Before Practice".into()),
                 automatic_stash_description: None,
             },
             || create_save(&current, 3),
@@ -607,5 +1008,144 @@ mod tests {
                 .is_none()
         );
         assert_eq!(2, repository.list().unwrap().len());
+    }
+
+    #[test]
+    fn restores_original_current_when_replacement_verification_fails() {
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        let context = ApplyTestContext::new();
+        let operations = FaultOperations::new(&[ApplyBoundary::VerifyReplacement]);
+
+        let result = context.apply_with(&operations);
+
+        assert!(matches!(
+            result,
+            Err(ApplyError::ReplacementVerificationRolledBack(_))
+        ));
+        assert_eq!(
+            context.original_fingerprint,
+            validate_and_fingerprint(&context.current).unwrap()
+        );
+        assert!(
+            unfinished_journals(context.repository.root())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            fs::read_dir(context.current.parent().unwrap())
+                .unwrap()
+                .all(|entry| !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(ARTIFACT_PREFIX))
+        );
+    }
+
+    #[test]
+    fn startup_recovery_cleans_an_injected_replacement_failure() {
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        let context = ApplyTestContext::new();
+        let operations = FaultOperations::new(&[ApplyBoundary::ReplaceCurrent]);
+
+        let result = context.apply_with(&operations);
+
+        assert!(matches!(result, Err(ApplyError::Replace { .. })));
+        assert_eq!(
+            context.original_fingerprint,
+            validate_and_fingerprint(&context.current).unwrap()
+        );
+        let recovered = crate::recovery::recover_unfinished_transactions_in_documents(
+            &context.repository,
+            &context.documents,
+        )
+        .unwrap();
+        assert_eq!(
+            crate::recovery::RecoveryAction::AbortedReplacement,
+            recovered[0].action
+        );
+    }
+
+    #[test]
+    fn startup_recovery_resolves_an_injected_rollback_failure() {
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        let context = ApplyTestContext::new();
+        let operations = FaultOperations::new(&[
+            ApplyBoundary::VerifyReplacement,
+            ApplyBoundary::ReplaceRollback,
+        ]);
+
+        let result = context.apply_with(&operations);
+
+        assert!(matches!(result, Err(ApplyError::RollbackFailed { .. })));
+        let recovered = crate::recovery::recover_unfinished_transactions_in_documents(
+            &context.repository,
+            &context.documents,
+        )
+        .unwrap();
+        assert_eq!(
+            crate::recovery::RecoveryAction::FinishedReplacement,
+            recovered[0].action
+        );
+        assert_eq!(
+            context.replacement_fingerprint,
+            validate_and_fingerprint(&context.current).unwrap()
+        );
+    }
+
+    #[test]
+    fn startup_recovery_finishes_each_injected_commit_cleanup_failure() {
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        for (boundary, expected_action) in [
+            (
+                ApplyBoundary::CommitRollbackCleanup,
+                crate::recovery::RecoveryAction::FinishedReplacement,
+            ),
+            (
+                ApplyBoundary::CommitJournalCleanup,
+                crate::recovery::RecoveryAction::FinishedVerifiedCleanup,
+            ),
+        ] {
+            let context = ApplyTestContext::new();
+            let operations = FaultOperations::new(&[boundary]);
+
+            let result = context.apply_with(&operations);
+
+            assert!(matches!(result, Err(ApplyError::Cleanup { .. })));
+            let recovered = crate::recovery::recover_unfinished_transactions_in_documents(
+                &context.repository,
+                &context.documents,
+            )
+            .unwrap();
+            assert_eq!(expected_action, recovered[0].action);
+            assert_eq!(
+                context.replacement_fingerprint,
+                validate_and_fingerprint(&context.current).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn startup_recovery_cleans_an_injected_journal_update_failure() {
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        let context = ApplyTestContext::new();
+        let operations = FaultOperations::new(&[ApplyBoundary::PublishReplacing]);
+
+        let result = context.apply_with(&operations);
+
+        assert!(matches!(result, Err(ApplyError::Journal { .. })));
+        let recovered = crate::recovery::recover_unfinished_transactions_in_documents(
+            &context.repository,
+            &context.documents,
+        )
+        .unwrap();
+        assert_eq!(
+            crate::recovery::RecoveryAction::AbortedReplacement,
+            recovered[0].action
+        );
+        assert_eq!(
+            context.original_fingerprint,
+            validate_and_fingerprint(&context.current).unwrap()
+        );
     }
 }

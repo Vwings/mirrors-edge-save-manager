@@ -46,7 +46,8 @@ Status: Complete
 Deliverables:
 
 - Resolve Windows Documents and LocalAppData known folders.
-- Discover missing, unique, and ambiguous Current states without mutation.
+- Discover the account-named Current without mutation while ignoring backup
+  `.dat` files.
 - Validate observed save size and calculate a complete SHA-256 fingerprint.
 - Persist schema-versioned StoredSave metadata and gzip payloads.
 - Verify compressed captures before committing them to the repository.
@@ -66,7 +67,7 @@ Status: Complete
 Deliverables:
 
 - Detect `MirrorsEdge.exe` through the Windows process snapshot API.
-- Acquire a non-blocking Windows named mutex across switcher instances.
+- Acquire a non-blocking Windows named mutex across manager instances.
 - Combine process state and operation locking in one mutation guard.
 - Report game-running, operation-in-progress, and platform failures separately.
 
@@ -123,7 +124,7 @@ Completion criteria:
 
 ## Phase 5: Recovery and Fault Coverage
 
-Status: Next
+Status: Complete
 
 Deliverables:
 
@@ -144,7 +145,7 @@ Completion criteria:
 
 ## Phase 6: Complete Application Operations
 
-Status: Planned
+Status: Complete
 
 Deliverables:
 
@@ -154,18 +155,20 @@ Deliverables:
 - Persist Stash-to-Preset promotion without rewriting payload bytes.
 - Edit StoredSave alias and description metadata.
 - Finalize alias validation and default naming.
-- Finalize first activation behavior when Current is missing.
+- Implement confirmed, account-named first activation when Current is missing,
+  with crash-safe staging and recovery.
 - Map domain and platform errors to actionable application states.
 
 Completion criteria:
 
 - All supported mutations use the same mutation guard and repository rules.
 - Application operations are independent of Slint and have focused tests.
-- Missing and ambiguous Current states cannot accidentally enter replacement.
+- A missing account-named Current cannot accidentally enter replacement even
+  when backup `.dat` files exist.
 
 ## Phase 7: Built-in Presets
 
-Status: Planned
+Status: Complete
 
 Deliverables:
 
@@ -214,7 +217,7 @@ Deliverables:
 - Test redirected and OneDrive-backed Documents folders.
 - Test file sharing violations, antivirus delays, controlled-folder access, and
   insufficient permissions.
-- Test multiple switcher instances and forced termination during apply.
+- Test multiple manager instances and forced termination during apply.
 - Finalize application versioning, icons, Windows metadata, and packaging.
 - Define persisted-data migration policy before changing any schema.
 - Measure the final linked executable and startup behavior.
@@ -230,10 +233,16 @@ Completion criteria:
 
 ## Separate Save-Format Research
 
-The one-star time-trial save and any future generated Preset remain a separate
-research track. Controlled before/after samples must identify relevant fields
-and integrity checks before any unknown save bytes are changed.
+Save-format research is paused and does not block the version-one manager. Any
+future generated Preset requires controlled evidence for its fields and
+integrity checks; otherwise it is omitted without weakening capture, storage,
+Apply, or recovery behavior.
 
-This research does not block the core version-one switcher. If a generated save
-cannot be proven valid, it is omitted without weakening capture, storage,
-apply, or recovery behavior.
+## Future Save Tooling
+
+After version one, evaluate a separate save-format tooling track covering the
+complete `.dat` structure. The likely sequence is a read-only inspector,
+field-level comparison, structural and integrity validation, and only then
+narrowly scoped editing or generation where behavior is proven with controlled
+samples. This work is distinct from the safe manager and must not modify the
+opaque copy-and-restore path or introduce in-place editing of source saves.

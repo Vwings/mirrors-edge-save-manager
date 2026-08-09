@@ -1,4 +1,4 @@
-# Mirror's Edge Save Switcher Design
+# Mirror's Edge Save Manager Design
 
 Status: Draft v0.1
 
@@ -57,36 +57,32 @@ The application should discover the Documents known folder rather than assuming
 that it is literally under `%USERPROFILE%\Documents`, because Documents can be
 redirected or backed up by OneDrive.
 
-The first version expects exactly one `.dat` file. Zero files is a valid
-"Current not found" state. More than one `.dat` file is an ambiguous state and
-must block replacement rather than selecting a file arbitrarily.
+Current is always the file named from the current Windows account:
+`<account-name>.dat`. Other `.dat` files in `Savefiles` are treated as user-owned
+history or backups and are ignored by discovery and mutation operations.
 
-Discovery is read-only and produces one of four explicit states:
+Discovery is read-only and produces one of three explicit states:
 
 ```text
 SaveDirectoryMissing
 CurrentMissing
 CurrentFound(CurrentSave)
-CurrentAmbiguous(candidate paths)
 ```
 
 - `SaveDirectoryMissing` means the expected `Savefiles` directory does not
   exist. Discovery must not create it.
-- `CurrentMissing` means the directory exists but contains no regular `.dat`
-  file.
-- `CurrentFound` means exactly one regular `.dat` file was found.
-- `CurrentAmbiguous` means multiple regular `.dat` files were found. Their
-  paths are reported for diagnosis, but none is selected.
+- `CurrentMissing` means the directory exists but the account-named `.dat` file
+  is absent, regardless of other `.dat` files in the directory.
+- `CurrentFound` means the account-named path is a regular file.
 
-Extension matching is ASCII case-insensitive. Non-files, symlinks, and files
-with other extensions are ignored. Failure to enumerate or inspect the
-directory is an operational error rather than a missing-Current state.
+Windows path matching supplies the normal case-insensitive filename behavior.
+If the account-named path exists but is not a regular file, discovery reports an
+operational error. Failure to inspect the directory or target path is also an
+operational error rather than a missing-Current state.
 
-Application-owned transaction artifacts are also excluded from Current
-candidate counting only when their filename has the exact reserved prefix,
-suffix, and a valid transaction UUID. Similar user filenames remain ordinary
-`.dat` candidates. Transaction recovery, rather than Current discovery, owns
-the reserved replacement, rollback, and failed files.
+Application-owned transaction artifacts and user backup `.dat` files never
+participate in Current discovery. Transaction recovery owns the reserved
+replacement, rollback, and failed files.
 
 ### 4.2 StoredSave
 
@@ -123,6 +119,7 @@ Initial built-in examples are:
 
 - A completed campaign starting save.
 - The 69% speedrun save.
+- A completed-campaign save with all time trials unlocked.
 - A completed-campaign and one-star time-trial save, if a valid file can be
   produced and verified.
 
@@ -131,6 +128,12 @@ User-created Presets can come from Current, Stash, or an imported external
 
 Built-in Presets are hidden rather than physically deleted. They can be
 restored to the visible collection.
+
+Each built-in Preset has a stable UUID logical ID and a positive resource
+version. Payload revisions retain the logical ID and increment the version;
+materially different Presets receive a new logical ID. Hidden state is keyed by
+logical ID, so upgrading a hidden resource does not expose it again. A newly
+introduced logical ID is visible by default.
 
 ### 4.4 Stash
 
@@ -183,6 +186,19 @@ StoredSave, and asks for an alias and optional description.
 Identical content may be imported more than once. The application should warn
 about the matching hash but must not silently reject the operation.
 
+### StoredSave Naming
+
+Aliases are trimmed before storage, must not be empty, and are limited to 80
+Unicode characters. User-entered aliases that violate these rules are rejected
+rather than truncated.
+
+When the caller does not provide an alias, Current captures use the StoredSave
+classification and local timestamp, such as `Stash 2026-08-01 14:30:00` or
+`Preset 2026-08-01 14:30:00`. External imports first use the source filename
+stem; if no usable stem exists, they fall back to `Preset` plus the local
+timestamp. Generated aliases pass through the same validation as user-entered
+aliases.
+
 ### Validate Save File
 
 The first version validates an opaque save by requiring a regular file with the
@@ -196,7 +212,7 @@ from ordinary save data.
 The application owns data below LocalAppData:
 
 ```text
-%LOCALAPPDATA%\Mirror's Edge Save Switcher\
+%LOCALAPPDATA%\Mirror's Edge Save Manager\
   stored-saves\<id>\metadata.json
   stored-saves\<id>\payload.dat.gz
   transactions\<id>.json
@@ -231,13 +247,13 @@ The game process is a hard prerequisite for every mutation.
 - Keep the window responsive so the user can inspect the problem.
 - Recheck the process immediately before replacing Current.
 - Re-scan and re-hash Current before replacement to detect external changes.
-- Use an application-level lock to prevent two switcher instances from acting
+- Use an application-level lock to prevent two manager instances from acting
   concurrently.
 
 All mutating application operations use one mutation guard. The guard first
 attempts to acquire a non-blocking, session-local Windows named mutex and then
 checks the game process state. Failure to acquire the mutex reports that another
-switcher operation is active; a running game reports a separate blocked reason.
+manager operation is active; a running game reports a separate blocked reason.
 The guard owns the mutex for the full mutation and releases it when dropped.
 An abandoned mutex is acquired normally because Windows has already released
 its previous owner's claim; transaction-journal recovery remains responsible
@@ -264,6 +280,16 @@ Cloud sync, antivirus scanning, file locks, and controlled-folder access may
 cause replacement to fail. These must produce an actionable error and never be
 handled by deleting the original Current first.
 
+When Current is missing but the native save directory exists, first activation
+is a separate operation rather than an ordinary Apply because there is no
+Current to capture as an automatic Stash. The application obtains the current
+Windows account name, presents the resulting `<account>.dat` filename for user
+confirmation, and only then materializes a selected verified StoredSave at that
+exact derived path. The account name is never accepted as a path: it must be a
+single valid Windows filename stem. A missing save directory, an existing
+account-named Current, a running game, or an unconfirmed filename blocks
+activation.
+
 ### 7.1 Replacement API and Artifacts
 
 Current replacement uses the Unicode Win32 `ReplaceFileW` API with the current
@@ -282,10 +308,10 @@ artifacts before cleanup or retry.
 Each apply transaction derives these names from one UUID:
 
 ```text
-%LOCALAPPDATA%\Mirror's Edge Save Switcher\transactions\<id>.json
-<Current directory>\.mirrors-edge-save-switcher-<id>.replacement.dat
-<Current directory>\.mirrors-edge-save-switcher-<id>.rollback.dat
-<Current directory>\.mirrors-edge-save-switcher-<id>.failed.dat
+%LOCALAPPDATA%\Mirror's Edge Save Manager\transactions\<id>.json
+<Current directory>\.mirrors-edge-save-manager-<id>.replacement.dat
+<Current directory>\.mirrors-edge-save-manager-<id>.rollback.dat
+<Current directory>\.mirrors-edge-save-manager-<id>.failed.dat
 ```
 
 The replacement, rollback, and failed paths must not exist when the transaction
@@ -402,6 +428,84 @@ must not infer identity from timestamps, automatically use the automatic Stash
 as a substitute rollback, or allow another mutation until the state is
 explicitly resolved.
 
+### 7.5 First-Activation Transaction
+
+First activation creates an account-named Current only when the native save
+directory exists and discovery reports `CurrentMissing`. It uses the same
+mutation guard and unfinished-journal gate as Apply. Other `.dat` files do not
+participate in the operation.
+
+An activation journal uses schema version 1 and contains:
+
+```text
+schema_version: 1
+transaction_id
+operation: activate
+phase: Prepared
+created_at
+updated_at
+stored_save_id
+current_path
+staging_path
+replacement_fingerprint: size + SHA-256
+```
+
+The staging path is the same-directory transaction-derived replacement path:
+
+```text
+<Current directory>\.mirrors-edge-save-manager-<id>.replacement.dat
+```
+
+The durable order is:
+
+1. Acquire the mutation guard and require no unfinished journal.
+2. Require an existing native save directory and a missing account-named
+   Current.
+3. Require the user-confirmed filename to equal the derived account filename.
+4. Materialize the selected StoredSave into the create-new staging path, flush
+   it, and verify its complete fingerprint.
+5. Publish the `Prepared` activation journal.
+6. Recheck the game process and require Current is still missing.
+7. Move staging to Current with `MoveFileExW` and `MOVEFILE_WRITE_THROUGH`,
+   without replacement permission.
+8. Reopen and verify Current, then delete the journal to commit.
+
+Startup recovery validates the schema, UUID, native account-named Current path,
+derived staging path, and complete fingerprints. Let `N` be the selected
+fingerprint, `M` a missing path, and `X` any other or unreadable state:
+
+| Current | Staging | Recovery action |
+| --- | --- | --- |
+| `M` | `N` | Finish activation by moving staging to Current, verify, then delete journal. |
+| `M` | `M` | Staging was lost before publication; delete journal. |
+| `N` | `M` | Activation succeeded; verify Current, then delete journal. |
+
+Any state containing `X`, both paths present, a mismatched path, or an
+unexpected fingerprint is blocked and preserves all artifacts. First activation
+never overwrites an existing Current and never uses a backup `.dat` as Current.
+
+### 7.6 Actionable Application Errors
+
+Application operations retain their concrete diagnostic errors and additionally
+classify each failure with a stable user action. This classification is
+independent of Slint and contains no translated display text. The UI maps the
+structured operation and action values to localized guidance while logs and
+support views can retain the original paths, fingerprints, OS errors, and source
+chain.
+
+The supported action categories distinguish invalid aliases and imports, a
+running game, another manager operation, unfinished recovery, manually blocked
+recovery, missing native save setup, first activation, changed Current state,
+filesystem access failures, damaged StoredSave data, invalid promotion targets,
+filename confirmation, unsupported platforms, retryable platform failures, and
+internal failures that should be reported.
+
+Classification never performs filesystem work. In particular, journal-related
+apply or activation failures conservatively request transaction recovery, while
+invalid journals, contradictory artifacts, and failed rollback request manual
+resolution. Automatic retries or cleanup must remain explicit application
+operations so error presentation cannot weaken transaction safety.
+
 ## 8. User Interface Direction
 
 Current is the persistent visual anchor of the application, not an ordinary
@@ -424,57 +528,65 @@ This design does not prescribe changing them before the domain layer is tested.
 
 ## 9. Save Format Research
 
-The three sample files currently available are:
+Read-only research has established the fixed container layout, Profile and
+Ghost-like regions, known integrity layers, and an isolated Time Trial unlock
+operation. The concise findings and remaining unknowns are maintained in
+`docs/save-format-research.md`; local samples remain ignored under
+`scratch/save-format/samples/`.
 
-```text
-savefile_examples\Vwings.dat
-savefile_examples\game_finished_blank.dat
-savefile_examples\69.dat
-```
+Deeper reverse engineering is paused. Version one does not parse or edit
+proprietary save content, and no production path may change unknown bytes.
 
-Observed facts:
+### Future Format Tooling
 
-- All three files are exactly `9,134,256` bytes.
-- `Vwings.dat` has only 153 non-zero bytes and compresses to about 9 KiB with
-  gzip.
-- `Vwings.dat` and `game_finished_blank.dat` differ in 622 bytes.
-- `Vwings.dat` and `69.dat` differ in 14,626 bytes.
-- The beginning contains repeated indexed records with apparent capacities of
-  `300000` and `10000` bytes.
-- The 69% file has occupied records in the first group while the fresh and
-  completed-blank samples leave those records mostly empty.
-- Progress-related differences are concentrated in a compact region around
-  `0x538` and a populated serialized region near `0x8B5010`.
-- Opaque 16-byte and 20-byte values occur beside data records and may be
-  checksums or identifiers.
+The project should continue researching the complete save structure even though
+version one treats save bytes as opaque. A future format tool may provide a
+read-only save inspector and field-level diff first, followed only by narrowly
+scoped editing once field dependencies and integrity checks are proven.
 
-These observations are not yet a format specification. Directly changing
-unknown fields is prohibited until controlled samples identify their meaning
-and all integrity fields are understood.
-
-The one-star Preset is a separate research task. It requires controlled
-before/after samples where only one unlock, star result, or time changes at a
-time. A generated file must be tested by launching the game and loading the
-relevant menus before it is distributed as a built-in Preset.
+This is a future direction, not a version-one commitment. It must not weaken the
+copy, capture, Apply, automatic-Stash, rollback, or recovery guarantees of the
+manager. Built-in resources remain read-only, and any future edited result
+should be exported as a new StoredSave rather than modifying the source in
+place. The overlap with community tools such as MirrorsEdgeTweaks should be
+evaluated before committing to an editor UI; safe offline storage management,
+inspection, comparison, and recovery are the distinct potential benefits.
 
 ## 10. Built-in Data and Distribution
 
-Built-in saves should be shipped as compressed, verified resources. The sample
-files demonstrate that fixed size does not imply large distribution size:
-
-- `69.dat`: approximately 25 KiB gzip-compressed.
-- `game_finished_blank.dat`: approximately 9.5 KiB gzip-compressed.
-- `Vwings.dat`: approximately 9 KiB gzip-compressed.
+Built-in saves are shipped as compressed, verified resources. The fixed-size
+files compress to approximately 9--26 KiB in the current resource set.
 
 The release build must measure decompression code size before finalizing the
 format. User-added saves are stored in LocalAppData and are independent of the
 program package.
 
+Version one embeds New Game, completed-campaign, 69% speedrun, and
+completed-campaign with all-time-trials-unlocked saves. Each embedded manifest
+records a stable UUID, resource version, alias, description, source filename,
+exact uncompressed size, SHA-256, and gzip bytes. Materialization uses
+create-new semantics and verifies the complete output before it can participate
+in activation or Apply.
+
+Built-in Presets are read-only views of embedded resources rather than copied
+user entries. Editing their metadata or promoting them is rejected. Visibility
+is the only persisted per-user mutation and is stored in schema-versioned
+`settings.json` under LocalAppData. Hiding a built-in records its logical ID but
+does not remove the embedded bytes. Unknown hidden IDs are retained so a
+temporarily removed resource remains hidden if a later version restores it.
+
+The completed-campaign and 69% resources originated as community-circulated
+saves with unknown original authors and download locations. New Game and the
+clean all-Time-Trials-unlocked resource are controlled game outputs. The assets
+are not covered by the project's GPL grant; `resources/built-in/NOTICE.md`
+records provenance, fingerprints, and the accepted redistribution risk.
+
 ## 11. Testing Boundary
 
 Before implementation is considered safe, tests must cover:
 
-- Missing, valid, and ambiguous save directories.
+- Missing and valid account-named Current states, including directories that
+  contain unrelated backup `.dat` files.
 - Exact-size and invalid external files.
 - Capture and hash verification.
 - Duplicate-content warning.
@@ -494,11 +606,10 @@ failure must not compromise the ability to copy and restore opaque save files.
 The following items remain implementation or product details rather than
 changes to the core model:
 
-- Whether a missing Current should default to the Windows account name or ask
-  for confirmation before creating the first filename.
 - Whether later format research supports safe structural validation beyond the
   fixed size.
+- Whether the project should add a post-version-one save inspector, structured
+  diff, or narrowly scoped editor after the required fields and integrity rules
+  are understood, and which capabilities should remain delegated to community
+  tools such as MirrorsEdgeTweaks.
 - Measured executable-size impact once storage is linked into the application.
-- Alias validation and default naming rules.
-- Built-in resource versioning across application upgrades.
-- Licensing and provenance notes for distributed binary save resources.
