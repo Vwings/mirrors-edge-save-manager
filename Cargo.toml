@@ -17,6 +17,7 @@ slint = { version = "=1.17.1", default-features = false, features = [
     "compat-1-2",
     "renderer-femtovg",
     "std",
+    "unstable-winit-030",
 ] }
 uuid = { version = "1.24.0", features = ["v4"] }
 
@@ -30,7 +31,9 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_System_WindowsProgramming",
+    "Win32_UI_Controls_Dialogs",
     "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [dev-dependencies]

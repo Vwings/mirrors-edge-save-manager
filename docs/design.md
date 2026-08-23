@@ -178,6 +178,21 @@ This captures Current into a new StoredSave with `kind = Preset`.
 This changes a Stash's classification to Preset. It is a move between product
 collections, not a binary rewrite.
 
+### Delete StoredSave
+
+Only user-created Presets and Stashes can be permanently deleted. Current and
+built-in Presets never expose this operation. The UI requires an explicit
+confirmation that names the StoredSave; deletion is never a row-selection side
+effect and there is no automatic Stash retention policy in version one.
+
+Deletion uses the same process check, application mutation lock, and unfinished
+transaction check as other mutations. After validating the ID and metadata, the
+repository atomically renames the StoredSave directory to an ignored tombstone
+in the same parent directory. That rename commits logical deletion without a
+partially visible entry. Physical tombstone cleanup is best effort; a cleanup
+failure may retain inaccessible bytes but must not resurrect a partially
+deleted StoredSave or endanger Current.
+
 ### Import External Save
 
 The user selects a `.dat` file, the application validates it, captures it as a
@@ -509,22 +524,125 @@ operations so error presentation cannot weaken transaction safety.
 ## 8. User Interface Direction
 
 Current is the persistent visual anchor of the application, not an ordinary
-list item or a third equal page.
+list item or a third equal page. The normal window is a compact single-column
+workspace: Current first, then one Preset/Stash library. A permanently visible
+operation or diagnostics column is not justified by the product's small action
+set.
 
-- Place Current in a central active node or switchboard core.
-- Show its filename, alias/source, modification time, hash state, and game
-  process lock state.
-- Show Preset and Stash entries as selectable saved-copy tracks around or
-  beside Current.
-- Applying an entry should visually communicate both flows:
-  `Current -> automatic Stash` and `StoredSave -> Current`.
-- Manual capture should appear as a Current-to-Stash action.
-- Applying a Stash, Preset, or imported save uses the same action and preview.
-- The UI may group entries as Presets and Stash while using one StoredSave model.
-- Running-game state disables all mutation actions without freezing the window.
+- Current shows its role, modification time, and direct capture actions. Raw
+  paths, full hashes, the account-derived filename, and healthy process or
+  recovery labels do not compete with the normal workflow.
+- Preset and Stash remain two views of one StoredSave collection. Compact tabs
+  expose one collection at a time and retain counts for the inactive view.
+- Each StoredSave row exposes its available actions directly. Apply is a
+  labeled primary action; Edit and Delete use consistent vector icons; a Stash
+  additionally offers the labeled `Make Preset` action. Selecting a row never
+  opens a generic action menu or details layer.
+- Built-in Presets expose only Apply. User Presets expose Edit, Delete, and
+  Apply. Stashes expose Edit, Make Preset, Delete, and Apply.
+- Icon-only controls use familiar vector symbols and always have an accessible
+  name. Text labels, hover, pressed, focus, and disabled states make the normal
+  workflow understandable without relying on floating Tooltip popups. A later
+  diagnostics surface may add contextual help where the action cannot be made
+  self-explanatory in place.
+- Apply opens a dedicated in-window modal over a dimmed, inactive workspace.
+  It explains, under `What happens after you confirm`, the automatic sequence:
+  back up Current, apply the selected save, then verify and finish or roll back
+  on failure. The numbered items are explanatory only; they are never clickable
+  user steps. This is safety confirmation, not a permanent preview panel.
+- Edit and Delete use their own focused in-window modals. Delete is permanent,
+  names the target explicitly, requires confirmation, and is available only for
+  user StoredSaves. Make Preset executes directly and refreshes the collection.
+- Manual capture appears as a direct Current-to-Stash or Current-to-Preset
+  action. External import remains a direct library action.
+- While `MirrorsEdge.exe` is running, a full-content safety overlay blocks the
+  workspace and shows only the running-game reason plus a concise Current
+  summary. The application polls process state in the background and restores a
+  refreshed workspace automatically after the game closes.
+- Manual refresh is a small icon action. The overview also refreshes after each
+  operation and when the window regains focus.
 
-The existing circular Slint nodes are only a technical interaction prototype.
-This design does not prescribe changing them before the domain layer is tested.
+### 8.1 Production Visual Language
+
+The production UI follows the original game's functional visual language rather
+than a generic dark dashboard theme:
+
+- White and very light gray are the dominant surfaces. Current may use a subtle
+  cool-gray plane to distinguish the live save, but large charcoal surfaces are
+  not part of the production interface.
+- Red is reserved for the next meaningful action, the selected Apply source,
+  and critical blocking states. Decorative red bars and repeated red borders
+  weaken its navigation role and are not used.
+- Amber may communicate warnings. Blue is informational only and must not imply
+  the primary action. State is always accompanied by text rather than color
+  alone.
+- Information is organized with broad flat planes, strong alignment, generous
+  empty space, and a small number of geometric anchors. Repeated ornamental
+  cards, gradients, shadows, and dense status chrome are avoided.
+- StoredSave alias and description are the primary human-facing identity.
+  Source filenames, exact hashes, and storage paths remain available to logs or
+  diagnostics but are hidden from the normal workflow.
+- Current is identified by its product role and modification time in the normal
+  workflow. Its account-derived `.dat` filename is diagnostic information, not
+  a useful user-facing name and not a substitute for StoredSave aliases.
+- The normal workflow is visible without opening a modal: inspect Current and
+  act directly on a StoredSave row. Only an action that needs focused input or
+  destructive confirmation opens an in-window modal.
+- Apply and first activation share the dedicated operation modal. A neutral
+  explanatory sequence describes ordering without persistent `Backup` or
+  `Apply` status regions and without implying that the user must perform the
+  numbered items. First activation replaces the backup step with its
+  no-existing-Current state and includes the derived account-named filename
+  before confirmation.
+- Non-destructive Current capture is available directly from the Current plane
+  as either Stash or Preset and uses the validated timestamp alias default until
+  metadata editing is exposed. External import uses a native Windows `.dat`
+  picker, followed by the same complete validation and repository capture rules
+  as every other import path; the picker filter is convenience, not validation.
+- User StoredSave alias and description are read-only in rows. Edit opens a
+  focused modal with visible labeled fields and Save/Cancel controls. Losing
+  focus within a field does not create a hidden always-editable row state.
+  Stash promotion is a direct secondary action and never rewrites payload bytes;
+  built-in metadata remains read-only.
+- Version one does not expose built-in Preset hiding or restoration in the UI.
+  Visibility is a low-frequency display preference rather than a StoredSave
+  classification, and adding a recovery surface for it would compete with the
+  primary Preset, Stash, and Apply workflow. The tested storage capability may
+  remain for a later settings surface.
+- The interface does not number permanent regions as a forced tutorial. Numbered
+  steps appear only in the Apply modal, where sequence is a data-safety
+  guarantee.
+- Every interactive row and control uses pointer, hover, pressed, and persistent
+  selected states. Decorative chevrons are not used as the only indication that
+  a row is actionable, and rows do not need redundant Select buttons.
+- While a mutation is running, the active modal becomes progress feedback and
+  the dimmed workspace remains inactive. A refreshed overview replaces stale
+  state when the operation finishes.
+- Internal content uses stretch constraints rather than desktop coordinates.
+  The compact fixed-size workspace keeps list scrolling internal and modal
+  geometry independent from collection length.
+
+Version one uses a compact fixed-size native Windows window centered on the
+primary display at startup. The final logical dimensions are chosen during
+manual scaling inspection after the single-column layout is implemented.
+StoredSave collections scroll within that surface, so resizing and maximizing
+do not add required product capability. The
+native title bar is retained for reliable dragging, minimizing, closing,
+keyboard shortcuts, system menus, snap behavior, and accessibility. A custom
+frameless title bar is not part of version one unless those behaviors are first
+implemented and verified explicitly.
+
+This direction is based on DICE's descriptions of the original art style as
+bright, clean, graphical, flat, and deliberately low in visual noise, with red
+Runner Vision identifying where the player should go next:
+
+- `https://www.ign.com/articles/2008/11/13/artist-in-residence-mirrors-edge`
+- `https://www.gamedeveloper.com/design/the-philosophy-of-faith-a-mirror-s-edge-interview`
+- `https://www.ea.com/news/runners-vision-in-mirrors-edge-catalyst`
+
+The exact desktop proportions are product design choices, not claimed as DICE
+interface specifications. The transferable invariant is that color and layout
+must guide action rather than decorate every region.
 
 ## 9. Save Format Research
 

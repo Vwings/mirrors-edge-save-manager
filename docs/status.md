@@ -1,6 +1,6 @@
 # Project Status and Handoff
 
-Last updated: 2026-08-09
+Last updated: 2026-08-23
 
 This is a temporary handoff document for development sessions. Update it when
 a milestone changes, a major decision is made, or the next task changes. Remove
@@ -15,9 +15,15 @@ and immediate ordered work.
 
 The safe Apply engine, fingerprint-based startup recovery, controlled fault
 coverage, complete application operations, and built-in Presets are complete.
-All four bundled saves passed in-game verification, closing Phase 7. The next
-stage is the production UI and application-layer integration; the domain code is
-not connected to the Slint prototype yet.
+All four bundled saves passed in-game verification, closing Phase 7. Phase 8 is
+complete: the complete application operations now use a compact,
+Current-centered single-column UI. Preset and Stash rows expose their actions
+directly; Apply, edit, and permanent user-save deletion use focused in-window
+modals instead of a permanent preview column. A full-content safety overlay
+blocks interaction while the game runs, with lightweight process polling and
+automatic refresh after it closes. Built-in visibility controls remain outside
+version one. Work now moves to Phase 9 release hardening and real-environment
+safety verification.
 
 ## Completed
 
@@ -139,22 +145,120 @@ not connected to the Slint prototype yet.
   four loaded without corruption and presented their expected progress state;
   the all-time-trials resource had unlocked courses without existing PB or
   Ghost data.
+- Slint-independent application overview combining game-process state, guarded
+  startup recovery, Current discovery and complete fingerprinting, and unified
+  StoredSave listing.
+- Current-centered production UI foundation replacing the circular technical
+  prototype, with live Preset and Stash collections, Current modification time,
+  concise verification, process state, recovery state, and actionable guidance.
+- Background overview loading and refresh through the Slint event loop so save
+  scanning, hashing, recovery, and filesystem access do not block the UI thread.
+- Read-only Phase 8 integration boundary that deliberately exposes no mutation
+  control before its apply preview, confirmations, and blocked-state guidance
+  are implemented.
+- Selectable Preset and Stash cards with persistent selection styling and a
+  non-mutating Apply preview that shows Current-to-automatic-Stash followed by
+  selected-StoredSave-to-Current.
+- Apply preview guidance that blocks the ordinary two-flow path when Current is
+  missing, distinguishes first activation as a separate no-Stash transaction,
+  and surfaces game-process and recovery prerequisites before confirmation.
+- Production visual direction researched from DICE and EA descriptions of the
+  original game's bright, flat, low-noise art style and functional Runner Vision
+  color system, with the resulting constraints recorded in `docs/design.md`.
+- Red-and-white production UI revision removing the dark dashboard theme,
+  decorative vertical accents, modal preview, and competing blue emphasis.
+- Persistent three-step guidance for checking Current, choosing one Preset or
+  Stash, and reviewing the operation in place before any confirmation.
+- Stretch-based workspace filling the supported window surface without Slint
+  layout binding loops, absolute desktop coordinates, module overlap, or text
+  escaping its owning panel.
+- Fixed `1080x720` logical-pixel native window centered on the primary display,
+  removing unnecessary resize and maximize behavior while retaining native
+  dragging, minimizing, closing, keyboard, and accessibility behavior.
+- Primary workflow simplified around aliases, descriptions, modification times,
+  and actionable state; raw save paths, SHA-256 values, and source filenames no
+  longer compete with normal user decisions.
+- Removed numbered top-level workflow labels while retaining compact
+  Preset/Stash category tabs suited to the narrow library pane.
+- Added explicit hover, pressed, pointer, and selected feedback for interactive
+  rows and controls without redundant chevrons or Select labels.
+- Current now presents its role and modification time instead of promoting the
+  account-derived `.dat` filename and redundant verification copy.
+- Locked the lower library and operation-preview columns to fixed outer geometry
+  so conditional preview content cannot resize either panel after selection.
+- Added restrained functional color hierarchy with a cool-gray Current surface,
+  warm-gray library, white preview, and state-specific status colors.
+- Removed the redundant red selection stripe; selected rows rely on their stable
+  border and full-row background instead of layered decorative indicators.
+- Connected ordinary Apply and first activation to their tested transaction
+  services through background workers, preserving UI responsiveness during all
+  filesystem work.
+- Added in-place two-step confirmation, including the exact account-derived
+  filename for first activation and the automatic-Stash consequence for Apply.
+- Added mutation progress, operation-specific success, actionable classified
+  failure guidance, selection locking, and automatic overview refresh after an
+  operation finishes.
+- Connected Current-to-Stash and Current-to-Preset capture using validated
+  timestamp aliases, preserving Current while the verified copy is stored.
+- Added a native Windows `.dat` picker and connected external import through the
+  guarded repository service without adding a cross-platform dialog dependency.
+- Added duplicate-content success warnings for capture and import while keeping
+  duplicate StoredSaves as required by the product rules.
+- Connected guarded Stash-to-Preset promotion and user StoredSave alias and
+  description editing without modifying payload bytes.
+- Centralized every application action code into localized UI guidance, including
+  disabled Game, recovery, Current, and library states without exposing raw
+  diagnostic errors as normal user instructions.
+- Added operation-specific progress for Apply, activation, capture, import,
+  promotion, and metadata editing, with an explicit tested numeric boundary
+  between Rust action values and Slint guidance.
+- Kept the tested built-in visibility storage capability out of the version-one
+  UI so the primary library remains limited to Preset and Stash.
+- Reworked selected-save management into an explicit read-only and Edit details
+  mode with labeled fields plus Save/Cancel controls, eliminating invisible
+  always-editable inputs.
+- Compressed the automatic-Stash and Apply safety preview into two informational
+  lines and pinned the real Apply action within the visible panel instead of
+  placing it below scrollable management content.
+- Replaced the transitional two-column library and permanent operation preview
+  with a compact `680x640` single-column workspace.
+- Added direct per-row Apply, Edit, Make Preset, and Delete actions according to
+  StoredSave origin and classification; built-in Presets expose only Apply.
+- Added unified vector edit, delete, and refresh icons with delayed tooltips and
+  accessible labels rather than Emoji or unexplained glyphs.
+- Added dedicated in-window Apply, Edit, and Delete modals. Apply communicates
+  backup, replacement, and verification as a three-step timeline; deletion is a
+  named permanent confirmation for user StoredSaves only.
+- Added guarded permanent user StoredSave deletion using same-directory atomic
+  tombstoning, best-effort physical cleanup, the shared mutation guard, and the
+  unfinished-transaction block.
+- Added a full-content running-game safety overlay and lightweight background
+  process polling that performs a complete refresh only after the game closes.
+- Added automatic overview refresh when the native window regains focus, while
+  avoiding refresh races during a running mutation or open modal.
 
 ## Last Verification
 
-The following checks passed after the Save Manager rename, four-resource
-built-in Preset update, and in-game verification record:
+The following checks passed after adding guarded deletion and replacing the
+permanent preview column with the compact single-column UI:
 
 ```text
 cargo fmt --check
-cargo test                         # 65 passed
+cargo test                         # 69 passed (68 library, 1 UI helper)
 cargo clippy --all-targets -- -D warnings
 cargo build --release
 ```
 
-The storage and process-detection code is not yet referenced by the GUI binary,
-so the current release build is not the final linked application-size
-measurement.
+The latest debug window passed window-only inspection at simulated 100%, 125%,
+and 150% Slint scale factors. Inspection covered the default Preset list, the
+internally scrolling collection, Stash row actions, and the dimmed explanatory
+Apply sequence at 150%. The final `680x640` logical window remains inside the
+desktop work area at 150%, with no clipping or overlap outside the intended
+list viewport.
+
+The release binary now links every operation exposed by the version-one UI. It
+is still not the final size measurement because manual Windows scaling
+inspection remains.
 
 ## Current Worktree Note
 
@@ -203,8 +307,20 @@ Complete these in order unless the design document is updated first:
   progress before release.
 - [x] Record the confirmed save-container findings and pause deeper format
   research; offline editing is outside version-one scope.
-- [ ] Bind the stable application layer to a new UI design without modifying
-  the existing prototype merely to expose incomplete domain work.
+- [x] Replace the technical prototype with a Current-centered production shell
+  and bind startup recovery, Current fingerprinting, process state, and unified
+  StoredSave listing through a background worker.
+- [x] Add StoredSave selection and the Apply preview showing both automatic
+  Stash and StoredSave-to-Current flows.
+- [x] Bind Apply and first activation with explicit confirmation and complete
+  blocked-state guidance.
+- [x] Bind manual Stash and Preset capture plus external `.dat` import.
+- [x] Bind promotion plus alias and description editing; keep built-in visibility
+  controls out of the version-one UI.
+- [x] Complete localized application-error guidance, operation progress, and
+  refresh-after-mutation behavior.
+- [x] Inspect the fixed window, list viewport, row actions, and Apply modal at
+  simulated 100%, 125%, and 150% desktop scaling.
 
 ## Separate Research Track
 

@@ -3,9 +3,11 @@
 An unofficial, open-source save preset and recovery manager for Mirror's Edge.
 
 The project currently has tested storage, safe Apply, startup recovery, and
-actionable application-error layers alongside the original Slint technical
-prototype. The domain layer is not connected to the GUI yet, and the prototype
-UI is not the final product design.
+actionable application-error layers. Phase 8 has replaced the original Slint
+technical prototype with a Current-centered production UI foundation that loads
+the real application overview off the UI thread. Apply, confirmed first
+activation, Current capture, external import, StoredSave promotion, and metadata
+editing are connected through the tested application services.
 
 The current product and architecture decisions are documented in
 [docs/design.md](docs/design.md). The path to a releasable first version is in

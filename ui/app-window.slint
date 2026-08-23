@@ -1,143 +1,398 @@
-component StatusNode inherits Rectangle {
-    in property <string> caption;
-    in property <string> detail;
-    in property <color> accent;
-    in property <bool> selected;
+global Guidance {
+    public pure function for-action(action: int) -> string {
+        if action == 0 { return @tr("Enter a name from 1 to 80 characters."); }
+        if action == 1 { return @tr("Choose a valid Mirror's Edge .dat file."); }
+        if action == 2 { return @tr("Close Mirror's Edge, then try again."); }
+        if action == 3 { return @tr("Wait for the other save operation to finish."); }
+        if action == 4 { return @tr("Refresh so transaction recovery can finish."); }
+        if action == 5 { return @tr("Transaction recovery needs manual attention."); }
+        if action == 6 { return @tr("Launch Mirror's Edge once to create its save directory."); }
+        if action == 7 { return @tr("Use first activation instead of ordinary Apply."); }
+        if action == 8 { return @tr("Refresh Current and review the operation again."); }
+        if action == 9 { return @tr("Check folder access and Windows security settings."); }
+        if action == 10 { return @tr("The selected saved copy is damaged or unavailable."); }
+        if action == 11 { return @tr("Select a Stash before using Make Preset."); }
+        if action == 12 { return @tr("Confirm the exact Windows account save filename."); }
+        if action == 13 { return @tr("This operation requires supported Windows APIs."); }
+        if action == 14 { return @tr("The operation did not complete. Try again."); }
+        return @tr("The operation failed. Report the problem if it repeats.");
+    }
+}
+
+export struct SaveListItem {
+    id: string,
+    kind: int,
+    alias: string,
+    description: string,
+    created-at: string,
+    origin: int,
+}
+
+component ActionButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary: true;
+    in property <bool> enabled: true;
     callback activated;
+    height: 36px;
+    border-width: 1px;
+    border-color: !root.enabled ? #d1d1ce : root.primary ? #e51f2a : touch.has-hover ? #66666a : #b7b7b3;
+    background: !root.enabled ? #eeeeeb : root.primary ? (touch.pressed ? #b91821 : touch.has-hover ? #d51c26 : #e51f2a) : touch.pressed ? #dededb : touch.has-hover ? #f2f2ef : white;
+    Text {
+        text: root.label;
+        color: !root.enabled ? #9d9da0 : root.primary ? white : #333337;
+        font-size: 10px;
+        font-weight: 750;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        accessible-role: AccessibleRole.button;
+        accessible-label: root.label;
+        clicked => { root.activated(); }
+    }
+}
 
-    width: 176px;
-    height: 176px;
-    background: transparent;
+component IconButton inherits Rectangle {
+    in property <int> icon-kind;
+    in property <string> accessible-name;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    callback activated;
+    width: 34px;
+    height: 34px;
+    border-width: 1px;
+    border-color: !root.enabled ? #d5d5d2 : root.danger && touch.has-hover ? #e51f2a : touch.has-hover ? #77777b : #c7c7c3;
+    background: !root.enabled ? #eeeeeb : touch.pressed ? #dededb : touch.has-hover ? (root.danger ? #fff0f0 : #f3f3f0) : white;
+    if root.icon-kind == 0: Path {
+        x: 9px; y: 9px; width: 16px; height: 16px;
+        commands: "M 2 12.5 L 2.8 9.1 L 10.7 1.2 L 14.8 5.3 L 6.9 13.2 L 3.5 14 Z M 9.6 2.3 L 13.7 6.4";
+        stroke: root.enabled ? (root.danger ? #b51b23 : #333337) : #a4a4a7;
+        stroke-width: 1.5px;
+        fill: transparent;
+    }
+    if root.icon-kind == 1: Path {
+        x: 9px; y: 8px; width: 16px; height: 18px;
+        commands: "M 2 4 L 14 4 M 5 4 L 5 2 L 11 2 L 11 4 M 4 6 L 4.8 15 L 11.2 15 L 12 6 M 7 7 L 7 12 M 9 7 L 9 12";
+        stroke: root.enabled ? (root.danger ? #b51b23 : #333337) : #a4a4a7;
+        stroke-width: 1.4px;
+        fill: transparent;
+    }
+    if root.icon-kind == 2: Path {
+        x: 9px; y: 9px; width: 16px; height: 16px;
+        commands: "M 8 2 A 6 6 0 1 1 3.2 4.4 M 3.2 1.8 L 3.2 4.4 L 5.8 4.4";
+        stroke: root.enabled ? #333337 : #a4a4a7;
+        stroke-width: 1.5px;
+        fill: transparent;
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        accessible-role: AccessibleRole.button;
+        accessible-label: root.accessible-name;
+        clicked => { root.activated(); }
+    }
+}
 
-    ring := Rectangle {
-        width: root.selected || touch.has-hover ? 164px : 148px;
-        height: self.width;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
-        border-radius: self.width / 2;
-        border-width: root.selected ? 4px : 2px;
-        border-color: root.accent;
-        background: touch.pressed ? root.accent.darker(55%) : #171c27;
-
-        animate width, height, border-width, background {
-            duration: 180ms;
-            easing: ease-in-out;
-        }
-
-        VerticalLayout {
-            padding: 24px;
-            alignment: center;
-            spacing: 6px;
-
-            Text {
-                text: root.caption;
-                color: #f4f6fb;
-                font-size: 20px;
-                font-weight: 700;
-                horizontal-alignment: center;
-            }
-
-            Text {
-                text: root.detail;
-                color: #929bad;
-                font-size: 12px;
-                horizontal-alignment: center;
-                wrap: word-wrap;
-            }
+component LabeledInput inherits Rectangle {
+    in property <string> label;
+    in-out property <string> value;
+    in property <bool> enabled: true;
+    height: 60px;
+    border-width: 1px;
+    border-color: field.has-focus ? #e51f2a : #bdbdba;
+    background: root.enabled ? white : #eeeeeb;
+    VerticalLayout {
+        padding-left: 10px; padding-right: 10px; padding-top: 6px; padding-bottom: 5px; spacing: 3px;
+        Text { text: root.label.to-uppercase(); color: #737377; font-size: 8px; font-weight: 800; }
+        field := TextInput {
+            height: 30px;
+            text <=> root.value;
+            enabled: root.enabled;
+            color: #202023;
+            font-size: 12px;
+            vertical-alignment: center;
+            selection-foreground-color: white;
+            selection-background-color: #e51f2a;
+            accessible-label: root.label;
         }
     }
+}
 
-    touch := TouchArea {
-        clicked => {
-            root.activated();
+component CurrentPanel inherits Rectangle {
+    in property <int> current-state;
+    in property <int> error-action;
+    in property <string> modified;
+    in property <bool> mutation-enabled;
+    callback capture-requested(bool);
+    height: 112px;
+    background: #f1f2f3;
+    Rectangle { x: 0px; width: 4px; background: #e51f2a; }
+    HorizontalLayout {
+        padding-left: 22px; padding-right: 18px; padding-top: 18px; padding-bottom: 18px; spacing: 18px;
+        VerticalLayout {
+            horizontal-stretch: 1; spacing: 4px;
+            Text { text: @tr("CURRENT"); color: #171719; font-size: 17px; font-weight: 850; letter-spacing: 1px; }
+            Text {
+                text: root.current-state == 1 ? @tr("Active game save") : root.current-state == 2 ? @tr("No active save yet") : root.current-state == 3 ? @tr("Save folder not found") : root.current-state == 0 ? @tr("Checking active save…") : Guidance.for-action(root.error-action);
+                color: root.current-state == 1 ? #606065 : #9b5b18;
+                font-size: 11px;
+            }
+            if root.current-state == 1: Text { text: root.modified == "" ? @tr("Verified") : @tr("Modified") + "  " + root.modified; color: #929296; font-size: 9px; }
         }
+        ActionButton { width: 112px; primary: false; enabled: root.mutation-enabled && root.current-state == 1; label: @tr("Save as Stash"); activated => { root.capture-requested(false); } }
+        ActionButton { width: 120px; primary: false; enabled: root.mutation-enabled && root.current-state == 1; label: @tr("Save as Preset"); activated => { root.capture-requested(true); } }
+    }
+}
+
+component SaveRow inherits Rectangle {
+    in property <SaveListItem> save;
+    in property <bool> mutation-enabled;
+    callback action(int, SaveListItem);
+    height: 82px;
+    border-width: 1px;
+    border-color: #dededb;
+    background: white;
+    HorizontalLayout {
+        padding-left: 14px; padding-right: 12px; padding-top: 12px; padding-bottom: 12px; spacing: 10px;
+        VerticalLayout {
+            horizontal-stretch: 1; spacing: 3px;
+            Text { text: root.save.alias; color: #1d1d20; font-size: 13px; font-weight: 720; overflow: elide; }
+            Text { text: root.save.description != "" ? root.save.description : root.save.origin == 0 ? @tr("Built-in Preset") : root.save.created-at; color: #77777b; font-size: 10px; overflow: elide; }
+        }
+        if root.save.origin != 0: IconButton { icon-kind: 0; accessible-name: @tr("Edit name and description"); enabled: root.mutation-enabled; activated => { root.action(1, root.save); } }
+        if root.save.kind == 1: ActionButton { width: 96px; primary: false; enabled: root.mutation-enabled; label: @tr("Make Preset"); activated => { root.action(3, root.save); } }
+        if root.save.origin != 0: IconButton { icon-kind: 1; danger: true; accessible-name: @tr("Delete this saved copy"); enabled: root.mutation-enabled; activated => { root.action(2, root.save); } }
+        ActionButton { width: 78px; enabled: root.mutation-enabled; label: @tr("Apply"); activated => { root.action(0, root.save); } }
+    }
+}
+
+component TimelineStep inherits HorizontalLayout {
+    in property <string> number;
+    in property <string> title;
+    in property <string> detail;
+    in property <bool> connect-next: false;
+    height: 56px;
+    spacing: 14px;
+    Rectangle {
+        width: 28px; height: 28px; border-radius: 14px; border-width: 2px;
+        border-color: #b9b9b6;
+        background: #f3f3f0;
+        if root.connect-next: Rectangle {
+            x: 12px;
+            y: 26px;
+            width: 2px;
+            height: 36px;
+            background: #d0d0cc;
+            z: -1;
+        }
+        Text { text: root.number; color: #55555a; font-size: 10px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    VerticalLayout {
+        horizontal-stretch: 1; spacing: 2px;
+        Text { text: root.title; color: #262629; font-size: 12px; font-weight: 720; }
+        Text { text: root.detail; color: #77777b; font-size: 9px; overflow: elide; }
     }
 }
 
 export component AppWindow inherits Window {
     title: @tr("Mirror's Edge Save Manager");
-    preferred-width: 820px;
-    preferred-height: 520px;
+    preferred-width: 680px;
+    preferred-height: 640px;
     min-width: 680px;
-    min-height: 440px;
-    background: #0d1017;
+    min-height: 640px;
+    max-width: 680px;
+    max-height: 640px;
+    background: #ecece8;
 
-    private property <int> selected-node: 1;
+    in-out property <bool> loading: true;
+    in-out property <int> game-state: 0;
+    in-out property <int> game-error-action: -1;
+    in-out property <int> recovery-state: 0;
+    in-out property <int> recovery-error-action: -1;
+    in-out property <string> recovery-detail;
+    in-out property <int> current-state: 0;
+    in-out property <int> current-error-action: -1;
+    in-out property <string> current-modified;
+    in-out property <string> current-detail;
+    in-out property <[SaveListItem]> presets;
+    in-out property <[SaveListItem]> stashes;
+    in-out property <int> library-error-action: -1;
+    in-out property <string> library-error-detail;
+    in-out property <string> selected-save-id;
+    in-out property <string> activation-filename;
+    in-out property <int> activation-error-action: -1;
+    in-out property <bool> operation-confirming;
+    in-out property <int> operation-state;
+    in-out property <int> operation-kind;
+    in-out property <int> operation-action: -1;
+    in-out property <int> operation-duplicate-count;
+    in-out property <int> modal-kind: 0;
+    private property <int> active-kind: 0;
+    private property <string> selected-alias;
+    private property <string> edit-alias;
+    private property <string> edit-description;
+    private property <bool> mutation-ready: !root.loading && root.operation-state != 1 && root.game-state == 1 && (root.recovery-state == 1 || root.recovery-state == 2);
+    callback refresh-requested;
+    callback game-poll-requested;
+    callback operation-confirmed(string, bool, string);
+    callback capture-requested(bool);
+    callback import-requested;
+    callback manage-requested(int, string, string, string);
+
+    game-poll := Timer { interval: 1500ms; running: true; triggered => { root.game-poll-requested(); } }
 
     VerticalLayout {
-        padding: 38px;
-        spacing: 26px;
-
-        VerticalLayout {
-            spacing: 5px;
-
-            Text {
-                text: @tr("Mirror's Edge Save Manager");
-                color: #f4f6fb;
-                font-size: 28px;
-                font-weight: 700;
-            }
-
-            Text {
-                text: @tr("Slint + FemtoVG technical prototype");
-                color: #778195;
-                font-size: 13px;
-            }
-        }
-
-        Rectangle {
-            height: 1px;
-            background: #252b38;
-        }
-
+        padding: 22px; spacing: 14px;
         HorizontalLayout {
-            alignment: center;
-            spacing: 34px;
-
-            StatusNode {
-                caption: @tr("Presets");
-                detail: @tr("Saved starting points");
-                accent: #d24a42;
-                selected: root.selected-node == 0;
-                activated => {
-                    root.selected-node = 0;
-                }
+            height: 42px; spacing: 10px; alignment: start;
+            Rectangle { width: 30px; height: 30px; background: #e51f2a; Text { text: "ME"; color: white; font-size: 9px; font-weight: 850; horizontal-alignment: center; vertical-alignment: center; } }
+            VerticalLayout {
+                horizontal-stretch: 1; spacing: 0px;
+                Text { text: @tr("MIRROR'S EDGE"); color: #171719; font-size: 14px; font-weight: 850; letter-spacing: 1px; }
+                Text { text: @tr("SAVE MANAGER"); color: #8a8a8e; font-size: 8px; font-weight: 750; letter-spacing: 1px; }
             }
+            IconButton { icon-kind: 2; accessible-name: @tr("Refresh saves"); enabled: !root.loading && root.operation-state != 1; activated => { root.refresh-requested(); } }
+        }
 
-            StatusNode {
-                caption: @tr("Current");
-                detail: @tr("Active game save");
-                accent: #f1f3f7;
-                selected: root.selected-node == 1;
-                activated => {
-                    root.selected-node = 1;
-                }
+        if root.game-state == 3 || root.recovery-state == 3 || root.library-error-action >= 0: Rectangle {
+            height: 38px; background: #fff1f1; border-width: 1px; border-color: #efb7ba;
+            Text {
+                x: 12px; width: parent.width - 24px;
+                text: root.game-state == 3 ? Guidance.for-action(root.game-error-action) : root.recovery-state == 3 ? Guidance.for-action(root.recovery-error-action) : Guidance.for-action(root.library-error-action);
+                color: #a51e25; font-size: 9px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
             }
+        }
 
-            StatusNode {
-                caption: @tr("Stash");
-                detail: @tr("Recovery history");
-                accent: #4f86c6;
-                selected: root.selected-node == 2;
-                activated => {
-                    root.selected-node = 2;
+        CurrentPanel { current-state: root.current-state; error-action: root.current-error-action; modified: root.current-modified; mutation-enabled: root.mutation-ready; capture-requested(preset) => { root.capture-requested(preset); } }
+
+        Rectangle {
+            vertical-stretch: 1; background: #f7f7f4; border-width: 1px; border-color: #d4d4d0; clip: true;
+            VerticalLayout {
+                padding: 16px; spacing: 12px;
+                HorizontalLayout {
+                    height: 36px; spacing: 8px;
+                    Text { text: @tr("SAVED COPIES"); color: #303034; font-size: 11px; font-weight: 820; letter-spacing: 0.8px; vertical-alignment: center; horizontal-stretch: 1; }
+                    ActionButton { width: 100px; primary: false; enabled: root.mutation-ready; label: @tr("Import .dat"); activated => { root.import-requested(); } }
+                }
+                HorizontalLayout {
+                    height: 36px; spacing: 4px;
+                    Rectangle {
+                        horizontal-stretch: 1; background: root.active-kind == 0 ? #e51f2a : tab-preset.has-hover ? #ededE9 : white; border-width: 1px; border-color: root.active-kind == 0 ? #e51f2a : #cececa;
+                        Text { text: @tr("Presets") + "  " + root.presets.length; color: root.active-kind == 0 ? white : #444448; font-size: 10px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
+                        tab-preset := TouchArea { mouse-cursor: pointer; accessible-role: AccessibleRole.tab; accessible-label: @tr("Presets"); clicked => { root.active-kind = 0; } }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1; background: root.active-kind == 1 ? #e51f2a : tab-stash.has-hover ? #ededE9 : white; border-width: 1px; border-color: root.active-kind == 1 ? #e51f2a : #cececa;
+                        Text { text: @tr("Stash") + "  " + root.stashes.length; color: root.active-kind == 1 ? white : #444448; font-size: 10px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
+                        tab-stash := TouchArea { mouse-cursor: pointer; accessible-role: AccessibleRole.tab; accessible-label: @tr("Stash"); clicked => { root.active-kind = 1; } }
+                    }
+                }
+                Rectangle {
+                    vertical-stretch: 1; background: transparent;
+                    if (root.active-kind == 0 ? root.presets.length : root.stashes.length) == 0: Text { text: root.loading ? @tr("Loading…") : root.active-kind == 0 ? @tr("No Presets yet") : @tr("No Stash entries yet"); color: #818185; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    if (root.active-kind == 0 ? root.presets.length : root.stashes.length) > 0: Flickable {
+                        viewport-width: self.width;
+                        viewport-height: rows.preferred-height;
+                        rows := VerticalLayout {
+                            width: parent.width; spacing: 7px;
+                            for save in root.active-kind == 0 ? root.presets : root.stashes: SaveRow {
+                                save: save;
+                                mutation-enabled: root.mutation-ready;
+                                action(action, save) => {
+                                    root.selected-save-id = save.id;
+                                    root.selected-alias = save.alias;
+                                    root.edit-alias = save.alias;
+                                    root.edit-description = save.description;
+                                    root.operation-state = 0;
+                                    root.operation-action = -1;
+                                    if action == 0 { root.modal-kind = 1; }
+                                    if action == 1 { root.modal-kind = 2; }
+                                    if action == 2 { root.modal-kind = 3; }
+                                    if action == 3 { root.manage-requested(0, save.id, "", ""); }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        Rectangle {
-            height: 48px;
-            border-radius: 24px;
-            border-width: 1px;
-            border-color: #303747;
-            background: #131822;
+        if root.operation-state == 2: Text { height: 20px; text: root.operation-duplicate-count > 0 ? @tr("Done. Matching save content already existed.") : @tr("Done."); color: #247342; font-size: 10px; font-weight: 700; horizontal-alignment: center; }
+        if root.operation-state == 3 && root.modal-kind == 0: Text { height: 28px; text: Guidance.for-action(root.operation-action); color: #a51e25; font-size: 10px; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; }
+    }
 
-            Text {
-                text: @tr("Select a node to verify pointer input and retained animations.");
-                color: #a9b1c0;
-                font-size: 13px;
-                vertical-alignment: center;
-                horizontal-alignment: center;
+    if root.modal-kind != 0: Rectangle {
+        background: #00000066;
+        TouchArea { enabled: true; }
+        Rectangle {
+            width: 520px; height: root.modal-kind == 1 ? 430px : root.modal-kind == 2 ? 330px : 270px;
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            background: #f8f8f5; border-width: 1px; border-color: #c8c8c4;
+            VerticalLayout {
+                padding: 24px; spacing: 14px;
+                HorizontalLayout {
+                    height: 28px;
+                    Text { horizontal-stretch: 1; text: root.modal-kind == 1 ? (root.current-state == 2 ? @tr("ACTIVATE CURRENT") : @tr("APPLY SAVE")) : root.modal-kind == 2 ? @tr("EDIT SAVED COPY") : @tr("DELETE SAVED COPY"); color: #1d1d20; font-size: 14px; font-weight: 850; letter-spacing: 0.7px; }
+                }
+                Text { text: root.selected-alias; color: #e51f2a; font-size: 15px; font-weight: 750; overflow: elide; }
+                if root.modal-kind == 1: VerticalLayout {
+                    spacing: 5px;
+                    Text { height: 18px; text: @tr("WHAT HAPPENS AFTER YOU CONFIRM"); color: #68686c; font-size: 9px; font-weight: 820; letter-spacing: 0.6px; }
+                    Text { height: 18px; text: @tr("No action needed — Apply runs this sequence automatically."); color: #858589; font-size: 9px; }
+                    TimelineStep { number: "1"; connect-next: true; title: root.current-state == 2 ? @tr("Create Current") : @tr("Back up Current"); detail: root.current-state == 2 ? @tr("No existing Current will be replaced") : @tr("The active save becomes a new Stash"); }
+                    TimelineStep { number: "2"; connect-next: true; title: @tr("Apply selected save"); detail: @tr("The selected saved copy remains unchanged"); }
+                    TimelineStep { number: "3"; title: @tr("Verify and finish"); detail: @tr("Any verification failure restores the original Current"); }
+                    if root.current-state == 2: Text { height: 22px; text: @tr("Current filename") + "  " + root.activation-filename; color: #66666a; font-size: 10px; font-weight: 650; }
+                }
+                if root.modal-kind == 2: VerticalLayout {
+                    spacing: 10px;
+                    LabeledInput { label: @tr("Name"); value <=> root.edit-alias; enabled: root.operation-state != 1; }
+                    LabeledInput { label: @tr("Description (optional)"); value <=> root.edit-description; enabled: root.operation-state != 1; }
+                }
+                if root.modal-kind == 3: Text { height: 78px; text: @tr("Permanently delete this saved copy? This cannot be undone. Current and all other saved copies stay unchanged."); color: #55555a; font-size: 11px; wrap: word-wrap; vertical-alignment: center; }
+                if root.operation-state == 1: Rectangle {
+                    height: 44px; background: #efefec;
+                    Text { text: root.operation-kind == 0 ? @tr("Applying and verifying…") : root.operation-kind == 1 ? @tr("Activating and verifying…") : root.operation-kind == 6 ? @tr("Saving changes…") : @tr("Deleting saved copy…"); color: #55555a; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                }
+                if root.operation-state == 3: Rectangle {
+                    height: 52px; background: #fff1f1; border-width: 1px; border-color: #efb7ba;
+                    Text { x: 10px; width: parent.width - 20px; text: Guidance.for-action(root.operation-action); color: #a51e25; font-size: 9px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+                }
+                Rectangle { vertical-stretch: 1; background: transparent; }
+                if root.operation-state != 1: HorizontalLayout {
+                    height: 38px; spacing: 10px;
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    ActionButton { width: 100px; primary: false; label: @tr("Cancel"); activated => { root.modal-kind = 0; root.operation-state = 0; } }
+                    if root.modal-kind == 1: ActionButton {
+                        width: 138px;
+                        enabled: (root.current-state == 1 || (root.current-state == 2 && root.activation-filename != "")) && root.game-state == 1 && (root.recovery-state == 1 || root.recovery-state == 2);
+                        label: root.current-state == 2 ? @tr("Activate") : @tr("Apply");
+                        activated => { root.operation-confirmed(root.selected-save-id, root.current-state == 2, root.activation-filename); }
+                    }
+                    if root.modal-kind == 2: ActionButton { width: 120px; enabled: root.edit-alias != ""; label: @tr("Save changes"); activated => { root.manage-requested(1, root.selected-save-id, root.edit-alias, root.edit-description); } }
+                    if root.modal-kind == 3: ActionButton { width: 120px; label: @tr("Delete forever"); activated => { root.manage-requested(2, root.selected-save-id, "", ""); } }
+                }
+            }
+        }
+    }
+
+    if root.game-state == 2: Rectangle {
+        background: #f3f3f0f2;
+        TouchArea { enabled: true; }
+        Rectangle {
+            width: 500px; height: 250px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            background: white; border-width: 1px; border-color: #d2d2ce;
+            VerticalLayout {
+                padding: 32px; spacing: 14px; alignment: center;
+                Rectangle { width: 42px; height: 4px; background: #e51f2a; }
+                Text { text: @tr("MIRROR'S EDGE IS RUNNING"); color: #1d1d20; font-size: 16px; font-weight: 850; horizontal-alignment: center; }
+                Text { text: @tr("Save changes are locked until the game closes."); color: #66666a; font-size: 11px; horizontal-alignment: center; }
+                Rectangle { height: 1px; background: #e3e3df; }
+                Text { text: @tr("CURRENT"); color: #88888c; font-size: 9px; font-weight: 800; horizontal-alignment: center; }
+                Text { text: root.current-state == 1 ? (root.current-modified == "" ? @tr("Active save verified") : @tr("Modified") + "  " + root.current-modified) : @tr("Active save unavailable"); color: #303034; font-size: 11px; font-weight: 650; horizontal-alignment: center; }
+                Text { text: @tr("Waiting for the game to close…"); color: #a76118; font-size: 9px; horizontal-alignment: center; }
             }
         }
     }

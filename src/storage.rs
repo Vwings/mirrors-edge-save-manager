@@ -353,6 +353,23 @@ impl StoredSaveRepository {
         })
     }
 
+    pub fn delete(&self, id: &str) -> Result<(), StorageError> {
+        let (_metadata, payload_path) = self.load_entry(id)?;
+        let directory = payload_path
+            .parent()
+            .expect("a stored payload always has a parent");
+        let tombstone = self
+            .stored_saves_directory()
+            .join(format!(".{id}.deleted.{}", Uuid::new_v4()));
+        fs::rename(directory, &tombstone).map_err(|source| StorageError::Io {
+            operation: "delete stored save",
+            path: directory.to_path_buf(),
+            source,
+        })?;
+        let _ = fs::remove_dir_all(tombstone);
+        Ok(())
+    }
+
     pub(crate) fn materialize_payload(
         &self,
         id: &str,

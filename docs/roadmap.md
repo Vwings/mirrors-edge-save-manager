@@ -188,16 +188,21 @@ Completion criteria:
 
 ## Phase 8: Production UI and Integration
 
-Status: Planned
+Status: Complete
 
 Deliverables:
 
 - Replace the technical prototype with the Current-centered product design.
 - Display Current discovery, fingerprint, game process, and recovery states.
 - Present Preset and Stash collections backed by one StoredSave model.
-- Expose capture, import, apply, promote, metadata edit, hide, and restore
-  operations only when their application services are stable.
+- Expose capture, import, apply, promote, metadata edit, and confirmed user-save
+  deletion only when their application services are stable. Keep built-in
+  visibility controls out of the version-one primary workflow.
 - Communicate both automatic-Stash and StoredSave-to-Current flows before apply.
+- Use a compact single-column workspace with direct row actions and focused
+  in-window modals instead of a permanent operation-preview column.
+- Block the complete workspace while the game runs and automatically restore a
+  refreshed view when it closes.
 - Keep filesystem work off the UI thread and keep the window responsive.
 - Support desktop scaling and the required Windows 10/11 window sizes.
 

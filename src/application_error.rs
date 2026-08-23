@@ -16,6 +16,7 @@ use crate::recovery::RecoveryError;
 use crate::save_file::SaveFileError;
 use crate::staging::StagingError;
 use crate::storage::StorageError;
+use crate::stored_save_delete::StoredSaveDeleteError;
 use crate::stored_save_edit::StoredSaveEditError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +26,7 @@ pub enum ApplicationOperation {
     CaptureCurrent,
     ImportSave,
     EditStoredSave,
+    DeleteStoredSave,
     ActivateCurrent,
     RecoverTransactions,
     DiscoverCurrent,
@@ -32,6 +34,7 @@ pub enum ApplicationOperation {
     LocateApplicationData,
 }
 
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UserAction {
     CorrectAlias,
@@ -96,6 +99,7 @@ pub enum ApplicationErrorDetail {
     CaptureCurrent(Box<CaptureCurrentError>),
     ImportSave(Box<ImportSaveError>),
     EditStoredSave(Box<StoredSaveEditError>),
+    DeleteStoredSave(Box<StoredSaveDeleteError>),
     FirstActivation(Box<FirstActivationError>),
     Recovery(Box<RecoveryError>),
     Discovery(Box<DiscoveryError>),
@@ -111,6 +115,7 @@ impl fmt::Display for ApplicationErrorDetail {
             Self::CaptureCurrent(source) => source.fmt(formatter),
             Self::ImportSave(source) => source.fmt(formatter),
             Self::EditStoredSave(source) => source.fmt(formatter),
+            Self::DeleteStoredSave(source) => source.fmt(formatter),
             Self::FirstActivation(source) => source.fmt(formatter),
             Self::Recovery(source) => source.fmt(formatter),
             Self::Discovery(source) => source.fmt(formatter),
@@ -128,6 +133,7 @@ impl Error for ApplicationErrorDetail {
             Self::CaptureCurrent(source) => Some(source.as_ref()),
             Self::ImportSave(source) => Some(source.as_ref()),
             Self::EditStoredSave(source) => Some(source.as_ref()),
+            Self::DeleteStoredSave(source) => Some(source.as_ref()),
             Self::FirstActivation(source) => Some(source.as_ref()),
             Self::Recovery(source) => Some(source.as_ref()),
             Self::Discovery(source) => Some(source.as_ref()),
@@ -183,6 +189,24 @@ impl From<StoredSaveEditError> for ApplicationError {
             operation: ApplicationOperation::EditStoredSave,
             action: classify_stored_save_edit(&source),
             detail: ApplicationErrorDetail::EditStoredSave(Box::new(source)),
+        }
+    }
+}
+
+impl From<StoredSaveDeleteError> for ApplicationError {
+    fn from(source: StoredSaveDeleteError) -> Self {
+        let action = match &source {
+            StoredSaveDeleteError::MutationGuard(source) => classify_mutation_guard(source),
+            StoredSaveDeleteError::Recovery(source) => classify_recovery(source),
+            StoredSaveDeleteError::RecoveryRequired(_) => UserAction::RecoverTransactions,
+            StoredSaveDeleteError::Storage(source) => {
+                classify_storage(source, SaveFileContext::StoredSave)
+            }
+        };
+        Self {
+            operation: ApplicationOperation::DeleteStoredSave,
+            action,
+            detail: ApplicationErrorDetail::DeleteStoredSave(Box::new(source)),
         }
     }
 }
@@ -450,6 +474,13 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    #[test]
+    fn user_action_codes_match_the_ui_guidance_boundary() {
+        assert_eq!(0, UserAction::CorrectAlias as i32);
+        assert_eq!(11, UserAction::SelectStash as i32);
+        assert_eq!(15, UserAction::ReportProblem as i32);
+    }
 
     #[test]
     fn classifies_common_operation_blocks() {
