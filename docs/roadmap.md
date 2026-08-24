@@ -214,10 +214,27 @@ Completion criteria:
 
 ## Phase 9: Release Hardening
 
-Status: Planned
+Status: In Progress
 
 Deliverables:
 
+- Add English and Simplified Chinese localization, select the first-run locale
+  from the Windows display language, and persist an explicit top-bar language
+  choice.
+- Review the complete typography hierarchy and improve undersized normal text
+  without adding visual noise or breaking the compact layout.
+- Show the application version in the top bar and add a localized `Built-in`
+  origin tag to embedded Presets.
+- Make the missing-save-directory state actionable and disable Apply at the row
+  boundary until Mirror's Edge has created its native directory.
+- Review Rust and Slint module boundaries. Split files only where cohesive
+  ownership, reuse, or testability improves; directory depth is not itself a
+  release goal.
+- Separate contributor documentation from user documentation, add
+  `CONTRIBUTING.md`, and provide a maintained Simplified Chinese README alongside
+  the English README.
+- Define the GitHub Release workflow, release artifact names, checksums, release
+  notes, and the exact manual or automated publication steps.
 - Run end-to-end tests against a real Mirror's Edge save location.
 - Test redirected and OneDrive-backed Documents folders.
 - Test file sharing violations, antivirus delays, controlled-folder access, and
@@ -230,6 +247,11 @@ Deliverables:
 
 Completion criteria:
 
+- English and Simplified Chinese can be selected in the running application and
+  the explicit choice survives restart.
+- The repository has distinct user, contributor, and Chinese-language entry
+  documentation, and a maintainer can reproduce a GitHub Release from the
+  documented steps.
 - Formatting, tests, strict Clippy, and release build pass from a clean checkout.
 - Supported Windows versions pass the release acceptance checklist.
 - Installation, upgrade, operation, recovery, and removal behavior are

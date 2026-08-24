@@ -248,6 +248,22 @@ Application metadata must use an explicit schema version. Filesystem creation
 and modification times are captured as source metadata but are not the
 identity of a StoredSave.
 
+### Persisted-Data Migration Policy
+
+Version one reads only the schema versions it explicitly implements. An unknown
+StoredSave metadata, settings, or transaction-journal schema is never guessed,
+partially rewritten, or deleted; it produces an actionable unsupported-data or
+blocked-recovery state while preserving the original files.
+
+Any future schema migration must be implemented and tested as a distinct,
+version-to-version operation before a new writer is enabled. It must validate
+the complete source document, preserve immutable payload bytes and fingerprints,
+write and flush a separate replacement, verify that replacement, and publish it
+atomically. Transaction journals are not migrated while unfinished: the owning
+application version must recover them first, or the newer version must retain a
+compatible reader for that exact journal schema. No release may silently reset
+settings or discard a StoredSave merely because its schema is newer or unknown.
+
 The first metadata schema stores the StoredSave ID, classification, alias,
 description, origin, application creation time, source filename and modification
 time, original size, SHA-256, and compression format. Invalid or unsupported
@@ -561,6 +577,23 @@ set.
   refreshed workspace automatically after the game closes.
 - Manual refresh is a small icon action. The overview also refreshes after each
   operation and when the window regains focus.
+- When the native save directory does not exist, Current shows the actionable
+  instruction to launch Mirror's Edge once so the game can create it. Apply is
+  visibly unavailable in that state instead of opening a confirmation whose
+  final action is silently disabled. Other `.dat` files never substitute for
+  the account-named Current.
+- Version one ships in English and Simplified Chinese. First launch follows the
+  Windows display language, falling back to English when no supported locale
+  matches. A compact language selector in the top bar lets the user override
+  that choice, and the explicit choice is persisted in application settings.
+- The top bar shows the application version with low visual emphasis so bug
+  reports can identify the running build without opening a separate surface.
+- Built-in Presets carry a compact localized `Built-in` tag. The tag communicates
+  origin and read-only behavior without adding another action or category.
+- Before release, typography is reviewed as a complete hierarchy rather than by
+  increasing every size uniformly. Normal body text, metadata, buttons, tabs,
+  and modal guidance must remain comfortably readable while preserving the
+  compact single-column layout.
 
 ### 8.1 Production Visual Language
 

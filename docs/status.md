@@ -1,6 +1,6 @@
 # Project Status and Handoff
 
-Last updated: 2026-08-23
+Last updated: 2026-08-25
 
 This is a temporary handoff document for development sessions. Update it when
 a milestone changes, a major decision is made, or the next task changes. Remove
@@ -24,6 +24,15 @@ blocks interaction while the game runs, with lightweight process polling and
 automatic refresh after it closes. Built-in visibility controls remain outside
 version one. Work now moves to Phase 9 release hardening and real-environment
 safety verification.
+
+The first Phase 9 pass has confirmed the native known-folder path, account-named
+Current discovery in a directory containing unrelated `.dat` history, Current
+size and full hashing, clean transaction state, ordinary ACL ownership, and
+read-only startup of two manager instances. Temporary-directory testing now
+covers a real Windows sharing violation at `ReplaceFileW`; real-process checks
+cover the cross-process mutation mutex and running-game overlay without changing
+Current or adding StoredSaves. Environment-specific OneDrive redirection,
+Controlled Folder Access, antivirus delay, and Windows-version checks remain.
 
 ## Completed
 
@@ -221,7 +230,8 @@ safety verification.
   lines and pinned the real Apply action within the visible panel instead of
   placing it below scrollable management content.
 - Replaced the transitional two-column library and permanent operation preview
-  with a compact `680x640` single-column workspace.
+  with a compact `680x720` single-column workspace that shows all four bundled
+  Presets without scrolling.
 - Added direct per-row Apply, Edit, Make Preset, and Delete actions according to
   StoredSave origin and classification; built-in Presets expose only Apply.
 - Added unified vector edit, delete, and refresh icons with delayed tooltips and
@@ -236,6 +246,28 @@ safety verification.
   process polling that performs a complete refresh only after the game closes.
 - Added automatic overview refresh when the native window regains focus, while
   avoiding refresh races during a running mutation or open modal.
+- Completed the initial Phase 9 read-only audit against the native save location
+  without modifying Current: account-named discovery, ignored history files,
+  exact size/hash, ACL ownership, path attributes, and clean journals.
+- Verified two manager processes can load read-only state concurrently, while a
+  separately owned real Windows mutation mutex blocks `Save as Stash` before any
+  StoredSave is created and surfaces the expected guidance.
+- Verified a temporary exact-name `MirrorsEdge.exe` process activates the global
+  safety overlay, intercepts mutation input, and automatically restores the
+  workspace after exit without creating a StoredSave.
+- Added a real Windows sharing-violation test that permits Current reads but
+  denies replacement sharing, verifies Current remains byte-identical, and
+  confirms startup recovery aborts and cleans the failed replacement.
+- Finalized the application icon from the maintainer-supplied image by removing
+  its watermark, tightening the red border, balancing the square composition,
+  and retaining the original graphic unchanged. The optimized PNG and 16--256
+  px ICO are used by Windows Explorer and the executable. The Slint window uses
+  the verified 32 px ICO layer directly instead of asking Windows to reduce a
+  256 px bitmap at runtime, while a dedicated high-quality downscale keeps the
+  same graphic clearer in the title header.
+- Embedded package-derived file and product versions plus descriptive Windows
+  metadata in the executable. The debug executable's associated icon and
+  version properties were read back from the built PE for verification.
 
 ## Last Verification
 
@@ -244,21 +276,23 @@ permanent preview column with the compact single-column UI:
 
 ```text
 cargo fmt --check
-cargo test                         # 69 passed (68 library, 1 UI helper)
+cargo test                         # 70 passed (69 library, 1 UI helper)
 cargo clippy --all-targets -- -D warnings
 cargo build --release
 ```
 
-The latest debug window passed window-only inspection at simulated 100%, 125%,
-and 150% Slint scale factors. Inspection covered the default Preset list, the
-internally scrolling collection, Stash row actions, and the dimmed explanatory
-Apply sequence at 150%. The final `680x640` logical window remains inside the
-desktop work area at 150%, with no clipping or overlap outside the intended
-list viewport.
+The previous compact debug window passed window-only inspection at simulated
+100%, 125%, and 150% Slint scale factors. The revised `680x720` logical window
+restores full visibility for the four bundled Presets; scaling inspection must
+be repeated before release acceptance is complete.
 
 The release binary now links every operation exposed by the version-one UI. It
 is still not the final size measurement because manual Windows scaling
 inspection remains.
+
+The Windows metadata and finalized icon passed `cargo fmt --check`, all 70
+tests, strict Clippy, and a dev build. A release rebuild remains intentionally
+deferred until semantic versioning and packaging are finalized.
 
 ## Current Worktree Note
 
@@ -267,6 +301,33 @@ research samples. Automated tooling must not overwrite those inputs. Only the
 four reviewed compressed resources under `resources/built-in/` are
 distribution assets; their fingerprints and provenance notes are in the
 adjacent `NOTICE.md`.
+
+## Planned Productization Work
+
+The following scope was confirmed on 2026-08-25 and has not started. Preserve
+this order only where one item is a dependency of another; do not turn the list
+into unrelated release ceremony.
+
+- [ ] Improve the no-game/no-save-directory state with an explicit instruction
+  to launch Mirror's Edge once, and disable Apply before a misleading modal can
+  open. Keep the tested account-named Current and ignored-backup behavior.
+- [ ] Add English and Simplified Chinese localization. Choose the first-run
+  language from the Windows display language, expose a compact top-bar selector,
+  and persist an explicit user choice in application settings.
+- [ ] Audit the typography hierarchy because the current body and metadata text
+  can read too small. Adjust it as one responsive UI pass rather than isolated
+  font-size changes.
+- [ ] Display the application version unobtrusively in the top area.
+- [ ] Add a localized, visually distinct `Built-in` tag to embedded Preset rows.
+- [ ] Review every repository document for current behavior. Keep the English
+  user README separate from contributor instructions, add `CONTRIBUTING.md`,
+  and provide a maintained Simplified Chinese README.
+- [ ] Review the flat Rust module layout and the single Slint file. Modularize
+  only along real domain, application, component, or localization boundaries;
+  do not refactor solely to reduce the number of top-level files.
+- [ ] Design and document the GitHub Release process, including final artifacts,
+  version/tag relationship, checksums, release notes, and whether publication is
+  initially manual or automated.
 
 ## Next Tasks
 
