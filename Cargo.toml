@@ -41,6 +41,7 @@ tempfile = "3.23.0"
 
 [build-dependencies]
 slint-build = "=1.17.1"
+winresource = "0.1"
 
 [profile.release]
 codegen-units = 1

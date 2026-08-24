@@ -198,12 +198,13 @@ component TimelineStep inherits HorizontalLayout {
 
 export component AppWindow inherits Window {
     title: @tr("Mirror's Edge Save Manager");
+    icon: @image-url("../resources/window-icon.png");
     preferred-width: 680px;
-    preferred-height: 640px;
+    preferred-height: 720px;
     min-width: 680px;
-    min-height: 640px;
+    min-height: 720px;
     max-width: 680px;
-    max-height: 640px;
+    max-height: 720px;
     background: #ecece8;
 
     in-out property <bool> loading: true;
@@ -246,8 +247,8 @@ export component AppWindow inherits Window {
     VerticalLayout {
         padding: 22px; spacing: 14px;
         HorizontalLayout {
-            height: 42px; spacing: 10px; alignment: start;
-            Rectangle { width: 30px; height: 30px; background: #e51f2a; Text { text: "ME"; color: white; font-size: 9px; font-weight: 850; horizontal-alignment: center; vertical-alignment: center; } }
+            height: 44px; spacing: 10px; alignment: start;
+            Image { width: 40px; height: 40px; source: @image-url("../resources/header-logo.png"); image-fit: contain; }
             VerticalLayout {
                 horizontal-stretch: 1; spacing: 0px;
                 Text { text: @tr("MIRROR'S EDGE"); color: #171719; font-size: 14px; font-weight: 850; letter-spacing: 1px; }
