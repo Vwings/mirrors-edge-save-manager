@@ -762,8 +762,9 @@ impl From<StagingError> for ApplyError {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use std::fs::File;
+    use std::fs::{File, OpenOptions};
     use std::io::{Seek, SeekFrom, Write};
+    use std::os::windows::fs::OpenOptionsExt;
 
     use tempfile::TempDir;
 
@@ -1063,6 +1064,42 @@ mod tests {
         assert_eq!(
             crate::recovery::RecoveryAction::AbortedReplacement,
             recovered[0].action
+        );
+    }
+
+    #[test]
+    fn startup_recovery_cleans_a_real_current_sharing_violation() {
+        use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        let context = ApplyTestContext::new();
+        let current_lock = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&context.current)
+            .unwrap();
+
+        let result = context.apply_with(&SystemApplyOperations);
+
+        assert!(matches!(result, Err(ApplyError::Replace { .. })));
+        assert_eq!(
+            context.original_fingerprint,
+            validate_and_fingerprint(&context.current).unwrap()
+        );
+        drop(current_lock);
+
+        let recovered = crate::recovery::recover_unfinished_transactions_in_documents(
+            &context.repository,
+            &context.documents,
+        )
+        .unwrap();
+        assert_eq!(
+            crate::recovery::RecoveryAction::AbortedReplacement,
+            recovered[0].action
+        );
+        assert_eq!(
+            context.original_fingerprint,
+            validate_and_fingerprint(&context.current).unwrap()
         );
     }
 
