@@ -29,7 +29,7 @@ Deliverables:
 - Define CurrentSave and immutable StoredSave semantics.
 - Define Preset and Stash as classifications of StoredSave.
 - Require an automatic Stash before every apply operation.
-- Establish native save discovery and ambiguity behavior.
+- Establish account-named Current discovery and explicit missing states.
 - Establish opaque-file validation, storage, and replacement safety rules.
 - Separate save-format research from the copy-and-restore path.
 

@@ -276,6 +276,11 @@ Current or adding StoredSaves. Windows-version acceptance remains.
 - Added bundled English/Simplified Chinese UI translations, Windows display
   language detection, a persistent top-bar language selector, and settings
   compatibility for the explicit locale choice.
+- Reviewed the Rust and Slint module boundaries. The domain and platform Rust
+  modules remain flat because each already owns one cohesive behavior, and the
+  single-window Slint file remains together because its private components are
+  not reused. The desktop UI controller moved out of the binary entry point so
+  `main.rs` now contains only subsystem configuration and application startup.
 
 ## Last Verification
 
@@ -338,10 +343,10 @@ into unrelated release ceremony.
   font-size changes.
 - [x] Display the application version unobtrusively in the top area.
 - [x] Add a localized, visually distinct `Built-in` tag to embedded Preset rows.
-- [ ] Review every repository document for current behavior. Keep the English
+- [x] Review every repository document for current behavior. Keep the English
   user README separate from contributor instructions, add `CONTRIBUTING.md`,
   and provide a maintained Simplified Chinese README.
-- [ ] Review the flat Rust module layout and the single Slint file. Modularize
+- [x] Review the flat Rust module layout and the single Slint file. Modularize
   only along real domain, application, component, or localization boundaries;
   do not refactor solely to reduce the number of top-level files.
 - [ ] Design and document the GitHub Release process, including final artifacts,

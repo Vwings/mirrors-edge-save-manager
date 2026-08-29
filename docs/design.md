@@ -1,10 +1,11 @@
 # Mirror's Edge Save Manager Design
 
-Status: Draft v0.1
+Status: Version-one implementation baseline
 
-This document records the product and domain decisions made before feature
-implementation. The current Slint window remains a technical prototype and is
-not changed by this design.
+This document records the product, domain, safety, storage, and user-interface
+decisions implemented for version one. Release progress and remaining
+acceptance work are tracked separately in `docs/status.md` and
+`docs/roadmap.md`.
 
 ## 1. Purpose
 
@@ -31,7 +32,7 @@ user's active save, and apply a saved copy without losing the previous state.
 - Dynamically generating or editing game progress inside a `.dat` file.
 - Supporting Mirror's Edge Catalyst.
 - Supporting Linux, Proton, or non-Windows save locations.
-- Modifying the Slint technical prototype as part of the storage work.
+- Exposing built-in Preset hide and restore controls in the version-one UI.
 - Automatically deleting old Stash entries.
 - Interpreting every field in the proprietary save format.
 
@@ -117,17 +118,17 @@ A Preset is a StoredSave intentionally kept as a reusable starting point.
 
 Initial built-in examples are:
 
+- A clean New Game starting save.
 - A completed campaign starting save.
 - The 69% speedrun save.
 - A completed-campaign save with all time trials unlocked.
-- A completed-campaign and one-star time-trial save, if a valid file can be
-  produced and verified.
 
 User-created Presets can come from Current, Stash, or an imported external
 `.dat` file.
 
-Built-in Presets are hidden rather than physically deleted. They can be
-restored to the visible collection.
+The application service can hide and restore built-in Presets without changing
+their embedded bytes, but version one does not expose those visibility controls
+in the primary UI.
 
 Each built-in Preset has a stable UUID logical ID and a positive resource
 version. Payload revisions retain the logical ID and increment the version;
@@ -708,9 +709,9 @@ inspection, comparison, and recovery are the distinct potential benefits.
 Built-in saves are shipped as compressed, verified resources. The fixed-size
 files compress to approximately 9--26 KiB in the current resource set.
 
-The release build must measure decompression code size before finalizing the
-format. User-added saves are stored in LocalAppData and are independent of the
-program package.
+Release hardening measures the final linked executable size and startup
+behavior. User-added saves are stored in LocalAppData and are independent of
+the program package.
 
 Version one embeds New Game, completed-campaign, 69% speedrun, and
 completed-campaign with all-time-trials-unlocked saves. Each embedded manifest
@@ -726,11 +727,12 @@ is the only persisted per-user mutation and is stored in schema-versioned
 does not remove the embedded bytes. Unknown hidden IDs are retained so a
 temporarily removed resource remains hidden if a later version restores it.
 
-The completed-campaign and 69% resources originated as community-circulated
-saves with unknown original authors and download locations. New Game and the
-clean all-Time-Trials-unlocked resource are controlled game outputs. The assets
-are not covered by the project's GPL grant; `resources/built-in/NOTICE.md`
-records provenance, fingerprints, and the accepted redistribution risk.
+The completed-campaign resource is attributed to Phillotrax and the 69%
+speedrun resource to Toyro98 through their linked speedrun.com downloads. New
+Game and the clean all-Time-Trials-unlocked resource are controlled game
+outputs. The assets are not covered by the project's GPL grant;
+`resources/built-in/NOTICE.md` records provenance, fingerprints, and the
+accepted redistribution risk.
 
 ## 11. Testing Boundary
 
@@ -763,4 +765,3 @@ changes to the core model:
   diff, or narrowly scoped editor after the required fields and integrity rules
   are understood, and which capabilities should remain delegated to community
   tools such as MirrorsEdgeTweaks.
-- Measured executable-size impact once storage is linked into the application.

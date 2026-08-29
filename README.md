@@ -10,6 +10,8 @@
 An unofficial Windows utility for organizing and safely switching Mirror's Edge
 (2008) PC save files.
 
+![Mirror's Edge Save Manager application window](docs/assets/app-window.png)
+
 ## What it does
 
 While playing Mirror's Edge, you may want to keep a completed run, try another
@@ -52,6 +54,8 @@ deleted. They are currently shown in the Presets list by default.
 - Find the game's save folder and the current save automatically.
 - Save Current as a Preset or Stash with a name and description.
 - Import an external `.dat` file as a Preset.
+- Edit or permanently delete user-created Presets and Stashes with explicit
+  confirmation; built-in Presets remain read-only.
 - Switch safely between Presets and Stashes without changing the source copy.
 - Back up Current automatically before every switch.
 - Check file integrity before and after each operation.
@@ -108,7 +112,8 @@ preferences such as the selected language.
 5. Select a Preset or Stash and choose **Apply**. The confirmation shows that
    Current will be backed up automatically before the selected copy is applied.
 6. Use the **Stash** tab to restore an earlier state. A Stash can be promoted to
-   a Preset with **Make Preset**.
+   a Preset with **Make Preset**. User-created Presets and Stashes can also be
+   renamed, described, or permanently deleted after confirmation.
 
 If Current is missing but the save directory exists, the first activation flow
 asks you to confirm the account-derived `<username>.dat` filename before it
@@ -143,7 +148,20 @@ follow the on-screen recovery guidance. The application blocks new mutations
 when it cannot prove which bytes are safe.
 
 **The language did not change** — Select `EN` or `中文` in the top bar, then
-restart if the window was already open during a catalog update.
+wait for the interface to refresh. The explicit choice is saved automatically.
+
+## Update and removal
+
+The application is a standalone executable. To update it, close the game and
+all running manager instances, then replace the executable with the newer
+version. Stored Saves and settings remain under LocalAppData. If a newer build
+does not support existing persisted-data schemas, it reports the unsupported
+data instead of rewriting or discarding it.
+
+Removing the executable does not remove Stored Saves. To remove all application
+data as well, first finish or resolve any reported recovery operation, keep any
+copies you still need, close the manager, and then delete
+`%LOCALAPPDATA%\Mirror's Edge Save Manager\` manually.
 
 ## Scope
 
@@ -158,14 +176,6 @@ restart if the window was already open during a catalog update.
 Development commands, safety boundaries, localization workflow, and release
 verification are documented in [`CONTRIBUTING.md`](CONTRIBUTING.md). Product
 behavior and storage guarantees are specified in [`docs/design.md`](docs/design.md).
-
-```powershell
-cargo run
-cargo test
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo build --release
-```
 
 ## License and attribution
 

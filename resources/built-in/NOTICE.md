@@ -1,11 +1,13 @@
 # Built-in Save Asset Notice
 
 The compressed `.dat` resources in this directory are standard Mirror's Edge
-PC save files. The completed-campaign and 69% speedrun resources originated as
-community-circulated saves whose original authors and download locations are
-unknown. See the README for the completed-campaign and 69% source links. The New Game and clean all-Time-Trials-unlocked resources were produced
-as controlled local game outputs. The repository maintainer reviewed all four
-as ordinary game saves, found no known personal or sensitive information, and
+PC save files. The completed-campaign resource comes from the
+[Completed Game Save](https://www.speedrun.com/me/resources/62y3z) published by
+Phillotrax, and the 69% speedrun resource comes from the
+[69% Save](https://www.speedrun.com/me/resources/4gwtx) published by Toyro98.
+The New Game and clean all-Time-Trials-unlocked resources were produced as
+controlled local game outputs. The repository maintainer reviewed all four as
+ordinary game saves, found no known personal or sensitive information, and
 accepted the redistribution risk.
 
 These binary save assets are not claimed to be authored by this project and are

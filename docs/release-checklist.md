@@ -56,5 +56,5 @@ up game profile for mutation and interruption testing.
 - [ ] Build and inspect the distributable package.
 - [ ] Verify first run, upgrade with existing version-one data, and removal.
 - [ ] Verify removal does not delete user StoredSaves without explicit consent.
-- [ ] Document backup expectations, known limitations, and third-party asset
+- [x] Document backup expectations, known limitations, and third-party asset
   notices in user-facing release documentation.
