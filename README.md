@@ -2,6 +2,7 @@
 
 [![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4.svg)](#requirements)
+[![CI](https://github.com/Vwings/mirrors-edge-save-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/Vwings/mirrors-edge-save-manager/actions/workflows/ci.yml)
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
