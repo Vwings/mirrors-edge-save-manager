@@ -56,7 +56,11 @@ changes and never overwrite files under `scratch/save-format/samples/`.
 
 ## Verification
 
-Run the relevant checks before handoff:
+During routine development and small UI iterations, use the debug build and
+debug executable for logic and visible-result verification. Do not rebuild the
+release profile for every incremental change. Reserve the full sequence below,
+including `cargo build --release`, for release checkpoints, packaging changes,
+or an explicit user request:
 
 ```powershell
 cargo fmt --check
@@ -66,8 +70,13 @@ cargo build --release
 ```
 
 For UI, translation, build-resource, or icon changes, run the built executable
-and verify the visible result. If build artifacts appear stale, clean only this
-package with `cargo clean -p mirrors-edge-save-manager` and rebuild.
+and verify the visible result. Use the debug executable during normal iteration.
+If build artifacts appear stale, clean only this package with
+`cargo clean -p mirrors-edge-save-manager` and rebuild.
 
-Use Conventional Commits for new commits when the user explicitly requests a
-commit. Do not rewrite existing history.
+Use Conventional Commits when the user explicitly requests a commit. Every
+agent-created commit must include a non-empty body after the subject. The body
+must explain the motivation, summarize the major changes, and record relevant
+verification. Subject-only commits are prohibited unless the user explicitly
+requests one. Do not rewrite existing history unless the user explicitly asks
+to amend the latest commit.

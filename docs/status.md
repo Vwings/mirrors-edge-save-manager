@@ -22,8 +22,9 @@ directly; Apply, edit, and permanent user-save deletion use focused in-window
 modals instead of a permanent preview column. A full-content safety overlay
 blocks interaction while the game runs, with lightweight process polling and
 automatic refresh after it closes. Built-in visibility controls remain outside
-version one. Work now moves to Phase 9 release hardening and real-environment
-safety verification.
+version one. The Windows UI explicitly uses Slint's software renderer so runtime
+switching between Latin and CJK text does not depend on the OpenGL driver. Work
+now moves to Phase 9 release hardening and real-environment safety verification.
 
 The first Phase 9 pass has confirmed the native known-folder path, account-named
 Current discovery in a directory containing unrelated `.dat` history, Current
@@ -31,8 +32,7 @@ size and full hashing, clean transaction state, ordinary ACL ownership, and
 read-only startup of two manager instances. Temporary-directory testing now
 covers a real Windows sharing violation at `ReplaceFileW`; real-process checks
 cover the cross-process mutation mutex and running-game overlay without changing
-Current or adding StoredSaves. Environment-specific OneDrive redirection,
-Controlled Folder Access, antivirus delay, and Windows-version checks remain.
+Current or adding StoredSaves. Windows-version acceptance remains.
 
 ## Completed
 
@@ -279,8 +279,9 @@ Controlled Folder Access, antivirus delay, and Windows-version checks remain.
 
 ## Last Verification
 
-The following checks passed after adding guarded deletion and replacing the
-permanent preview column with the compact single-column UI:
+The following checks passed after the responsive typography pass, top-area
+version display, localized built-in Preset tags, and software-renderer language
+switching mitigation:
 
 ```text
 cargo fmt --check
@@ -289,14 +290,23 @@ cargo clippy --all-targets -- -D warnings
 cargo build --release
 ```
 
-The previous compact debug window passed window-only inspection at simulated
-100%, 125%, and 150% Slint scale factors. The revised `680x720` logical window
-restores full visibility for the four bundled Presets; scaling inspection must
-be repeated before release acceptance is complete.
+The release window passed direct window-capture inspection at simulated 100%,
+125%, and 150% Slint scale factors. The revised `680x720` logical window keeps
+all four bundled Presets visible without overlap or clipped text at each scale.
+The subsequent header alignment refinement was verified with the debug
+executable: the language and refresh controls stay at the far right, while the
+application version remains on the same line as the `SAVE MANAGER` subtitle.
+
+After a user-reported system-level stall while switching languages in the
+FemtoVG/OpenGL release, the application now selects Slint's software renderer
+before creating its first component and closes the language menu before applying
+the translation change. The software-rendered release remained responsive over
+11 automated English/Simplified Chinese transitions, and direct capture verified
+the localized `内置` tags and Chinese interface.
 
 The release binary now links every operation exposed by the version-one UI. It
-is still not the final size measurement because manual Windows scaling
-inspection remains.
+is still not the final size or cold-start measurement, and physical mixed-DPI
+acceptance remains.
 
 The Windows metadata and refreshed transparent icon passed `cargo fmt --check`,
 all 73 tests, strict Clippy, and a release build. The embedded executable icon
@@ -323,11 +333,11 @@ into unrelated release ceremony.
 - [x] Add English and Simplified Chinese localization. Choose the first-run
   language from the Windows display language, expose a compact top-bar selector,
   and persist an explicit user choice in application settings.
-- [ ] Audit the typography hierarchy because the current body and metadata text
+- [x] Audit the typography hierarchy because the current body and metadata text
   can read too small. Adjust it as one responsive UI pass rather than isolated
   font-size changes.
-- [ ] Display the application version unobtrusively in the top area.
-- [ ] Add a localized, visually distinct `Built-in` tag to embedded Preset rows.
+- [x] Display the application version unobtrusively in the top area.
+- [x] Add a localized, visually distinct `Built-in` tag to embedded Preset rows.
 - [ ] Review every repository document for current behavior. Keep the English
   user README separate from contributor instructions, add `CONTRIBUTING.md`,
   and provide a maintained Simplified Chinese README.

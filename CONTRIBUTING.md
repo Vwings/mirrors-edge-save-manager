@@ -91,5 +91,7 @@ Conventional Commit style for commit titles:
 ```
 
 Common types are `feat`, `fix`, `test`, `docs`, and `chore`. Add a short body
-when a change affects safety, persisted data, compatibility, or release
-behavior. Do not rewrite already-pushed history.
+to every commit after a blank line. The body must explain why the change is
+needed, summarize its major parts, and record relevant verification. Do not use
+subject-only commits unless a maintainer explicitly requests one. Do not rewrite
+already-pushed history.

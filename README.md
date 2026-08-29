@@ -135,8 +135,8 @@ native save directory is missing, launch the game once and return to the
 manager.
 
 **A replacement fails** — Close the game and any tools that may hold the save
-file open, then check antivirus or Controlled Folder Access permissions. Do not
-delete transaction artifacts while recovery is being reported.
+file open. Do not delete transaction artifacts while recovery is being
+reported.
 
 **The manager reports blocked recovery** — Leave the listed files untouched and
 follow the on-screen recovery guidance. The application blocks new mutations

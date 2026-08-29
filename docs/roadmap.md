@@ -236,9 +236,6 @@ Deliverables:
 - Define the GitHub Release workflow, release artifact names, checksums, release
   notes, and the exact manual or automated publication steps.
 - Run end-to-end tests against a real Mirror's Edge save location.
-- Test redirected and OneDrive-backed Documents folders.
-- Test file sharing violations, antivirus delays, controlled-folder access, and
-  insufficient permissions.
 - Test multiple manager instances and forced termination during apply.
 - Finalize application versioning, icons, Windows metadata, and packaging.
 - Define persisted-data migration policy before changing any schema.

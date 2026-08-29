@@ -35,7 +35,12 @@ use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 slint::include_modules!();
 
 fn main() -> Result<(), slint::PlatformError> {
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .renderer_name("software".into())
+        .select()?;
     let window = AppWindow::new()?;
+    window.set_application_version(env!("CARGO_PKG_VERSION").into());
     let repository = StoredSaveRepository::for_current_user().ok();
     let language = repository
         .as_ref()
@@ -621,5 +626,11 @@ mod tests {
 
         window.set_current_state(1);
         assert!(window.get_apply_ready());
+
+        for language in ["zh-CN", "en", "zh-CN", "en"] {
+            select_language(language);
+            window.set_language(language.into());
+            assert_eq!(window.get_language(), language);
+        }
     }
 }

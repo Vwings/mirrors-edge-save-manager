@@ -10,7 +10,7 @@ up game profile for mutation and interruption testing.
 - [x] `cargo fmt --check`
 - [x] `cargo test`
 - [x] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo build --release`
+- [x] `cargo build --release`
 - [ ] Measure release executable size and cold startup time.
 
 ## Native Environment
@@ -29,13 +29,6 @@ up game profile for mutation and interruption testing.
 
 - [x] Reproduce a real Windows Current sharing violation in a temporary save
   tree; preserve Current and recover the unfinished transaction after release.
-- [ ] Test a redirected local Documents known folder.
-- [ ] Test a OneDrive-backed Documents known folder with sync enabled.
-- [ ] Test insufficient LocalAppData permissions using a disposable account or
-  controlled ACL fixture.
-- [ ] Test Controlled Folder Access denial and the user-facing guidance.
-- [ ] Test delayed file release representative of antivirus scanning.
-- [ ] Test Current and application-data paths containing non-ASCII characters.
 
 ## Interruption And Recovery
 
@@ -51,6 +44,8 @@ up game profile for mutation and interruption testing.
 - [ ] Windows 10 x64 acceptance pass.
 - [ ] Windows 11 x64 acceptance pass.
 - [x] Simulated 100%, 125%, and 150% Slint scaling without layout overlap.
+- [x] Repeatedly switch English and Simplified Chinese in the software-rendered
+  release without losing window responsiveness.
 - [ ] Physical multi-monitor test with different per-monitor DPI values.
 
 ## Packaging And Lifecycle

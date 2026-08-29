@@ -40,7 +40,7 @@ component ActionButton inherits Rectangle {
     Text {
         text: root.label;
         color: !root.enabled ? #9d9da0 : root.primary ? white : #333337;
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 750;
         horizontal-alignment: center;
         vertical-alignment: center;
@@ -134,14 +134,14 @@ component LanguagePicker inherits Rectangle {
                 height: 30px;
                 primary: root.language == "en";
                 label: "English";
-                activated => { root.language-selected("en"); root.menu-open = false; }
+                activated => { root.menu-open = false; root.language-selected("en"); }
             }
             ActionButton {
                 width: 74px;
                 height: 30px;
                 primary: root.language == "zh-CN";
                 label: "中文";
-                activated => { root.language-selected("zh-CN"); root.menu-open = false; }
+                activated => { root.menu-open = false; root.language-selected("zh-CN"); }
             }
         }
     }
@@ -157,13 +157,13 @@ component LabeledInput inherits Rectangle {
     background: root.enabled ? white : #eeeeeb;
     VerticalLayout {
         padding-left: 10px; padding-right: 10px; padding-top: 6px; padding-bottom: 5px; spacing: 3px;
-        Text { text: root.label.to-uppercase(); color: #737377; font-size: 8px; font-weight: 800; }
+        Text { text: root.label.to-uppercase(); color: #737377; font-size: 9px; font-weight: 800; }
         field := TextInput {
             height: 30px;
             text <=> root.value;
             enabled: root.enabled;
             color: #202023;
-            font-size: 12px;
+            font-size: 13px;
             vertical-alignment: center;
             selection-foreground-color: white;
             selection-background-color: #e51f2a;
@@ -189,9 +189,9 @@ component CurrentPanel inherits Rectangle {
             Text {
                 text: root.current-state == 1 ? @tr("Active game save") : root.current-state == 2 ? @tr("No active save yet") : root.current-state == 3 ? @tr("Launch Mirror's Edge once to create its save folder.") : root.current-state == 0 ? @tr("Checking active save…") : Guidance.for-action(root.error-action);
                 color: root.current-state == 1 ? #606065 : #9b5b18;
-                font-size: 11px;
+                font-size: 12px;
             }
-            if root.current-state == 1: Text { text: root.modified == "" ? @tr("Verified") : @tr("Modified") + "  " + root.modified; color: #929296; font-size: 9px; }
+            if root.current-state == 1: Text { text: root.modified == "" ? @tr("Verified") : @tr("Modified") + "  " + root.modified; color: #818186; font-size: 10px; }
         }
         ActionButton { width: 112px; primary: false; enabled: root.mutation-enabled && root.current-state == 1; label: @tr("Save as Stash"); activated => { root.capture-requested(false); } }
         ActionButton { width: 120px; primary: false; enabled: root.mutation-enabled && root.current-state == 1; label: @tr("Save as Preset"); activated => { root.capture-requested(true); } }
@@ -211,8 +211,16 @@ component SaveRow inherits Rectangle {
         padding-left: 14px; padding-right: 12px; padding-top: 12px; padding-bottom: 12px; spacing: 10px;
         VerticalLayout {
             horizontal-stretch: 1; spacing: 3px;
-            Text { text: root.save.alias; color: #1d1d20; font-size: 13px; font-weight: 720; overflow: elide; }
-            Text { text: root.save.description != "" ? root.save.description : root.save.origin == 0 ? @tr("Built-in Preset") : root.save.created-at; color: #77777b; font-size: 10px; overflow: elide; }
+            HorizontalLayout {
+                height: 22px; spacing: 8px;
+                Text { horizontal-stretch: 1; text: root.save.alias; color: #1d1d20; font-size: 14px; font-weight: 720; overflow: elide; vertical-alignment: center; }
+                if root.save.origin == 0: Rectangle {
+                    width: 54px; height: 20px; border-radius: 2px;
+                    background: #fff0f0; border-width: 1px; border-color: #e8aeb1;
+                    Text { text: @tr("Built-in"); color: #a51e25; font-size: 9px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                }
+            }
+            Text { text: root.save.description != "" ? root.save.description : root.save.created-at; color: #6f6f74; font-size: 11px; overflow: elide; }
         }
         if root.save.origin != 0: IconButton { icon-kind: 0; accessible-name: @tr("Edit name and description"); enabled: root.mutation-enabled; activated => { root.action(1, root.save); } }
         if root.save.kind == 1: ActionButton { width: 96px; primary: false; enabled: root.mutation-enabled; label: @tr("Make Preset"); activated => { root.action(3, root.save); } }
@@ -240,12 +248,12 @@ component TimelineStep inherits HorizontalLayout {
             background: #d0d0cc;
             z: -1;
         }
-        Text { text: root.number; color: #55555a; font-size: 10px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+        Text { text: root.number; color: #55555a; font-size: 11px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
     }
     VerticalLayout {
         horizontal-stretch: 1; spacing: 2px;
-        Text { text: root.title; color: #262629; font-size: 12px; font-weight: 720; }
-        Text { text: root.detail; color: #77777b; font-size: 9px; overflow: elide; }
+        Text { text: root.title; color: #262629; font-size: 13px; font-weight: 720; }
+        Text { text: root.detail; color: #707075; font-size: 10px; overflow: elide; }
     }
 }
 
@@ -283,6 +291,7 @@ export component AppWindow inherits Window {
     in-out property <int> operation-action: -1;
     in-out property <int> operation-duplicate-count;
     in-out property <string> language: "en";
+    in property <string> application-version;
     in-out property <int> modal-kind: 0;
     private property <int> active-kind: 0;
     private property <string> selected-alias;
@@ -303,7 +312,7 @@ export component AppWindow inherits Window {
     VerticalLayout {
         padding: 22px; spacing: 14px;
         HorizontalLayout {
-            height: 44px; spacing: 10px; alignment: start;
+            height: 44px; spacing: 10px;
             z: 10;
             Rectangle {
                 width: 40px;
@@ -317,10 +326,16 @@ export component AppWindow inherits Window {
                 Image { width: parent.width; height: parent.height; source: @image-url("../resources/header-logo.png"); image-fit: contain; }
             }
             VerticalLayout {
-                horizontal-stretch: 1; spacing: 0px;
+                width: 180px; spacing: 0px;
                 Text { text: @tr("MIRROR'S EDGE"); color: #171719; font-size: 14px; font-weight: 850; letter-spacing: 1px; }
-                Text { text: @tr("SAVE MANAGER"); color: #8a8a8e; font-size: 8px; font-weight: 750; letter-spacing: 1px; }
+                HorizontalLayout {
+                    height: 14px; spacing: 8px;
+                    Text { height: 14px; text: @tr("SAVE MANAGER"); color: #747479; font-size: 9px; font-weight: 750; letter-spacing: 1px; vertical-alignment: center; }
+                    Text { height: 14px; text: "v" + root.application-version; color: #98989c; font-size: 9px; font-weight: 650; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                }
             }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
             LanguagePicker { language: root.language; language-selected(language) => { root.language-requested(language); } }
             IconButton { icon-kind: 2; accessible-name: @tr("Refresh saves"); enabled: !root.loading && root.operation-state != 1; activated => { root.refresh-requested(); } }
         }
@@ -330,7 +345,7 @@ export component AppWindow inherits Window {
             Text {
                 x: 12px; width: parent.width - 24px;
                 text: root.game-state == 3 ? Guidance.for-action(root.game-error-action) : root.recovery-state == 3 ? Guidance.for-action(root.recovery-error-action) : Guidance.for-action(root.library-error-action);
-                color: #a51e25; font-size: 9px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
+                color: #a51e25; font-size: 10px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
             }
         }
 
@@ -342,25 +357,25 @@ export component AppWindow inherits Window {
                 padding: 16px; spacing: 12px;
                 HorizontalLayout {
                     height: 36px; spacing: 8px;
-                    Text { text: @tr("SAVED COPIES"); color: #303034; font-size: 11px; font-weight: 820; letter-spacing: 0.8px; vertical-alignment: center; horizontal-stretch: 1; }
+                    Text { text: @tr("SAVED COPIES"); color: #303034; font-size: 12px; font-weight: 820; letter-spacing: 0.8px; vertical-alignment: center; horizontal-stretch: 1; }
                     ActionButton { width: 100px; primary: false; enabled: root.mutation-ready; label: @tr("Import .dat"); activated => { root.import-requested(); } }
                 }
                 HorizontalLayout {
                     height: 36px; spacing: 4px;
                     Rectangle {
                         horizontal-stretch: 1; background: root.active-kind == 0 ? #e51f2a : tab-preset.has-hover ? #ededE9 : white; border-width: 1px; border-color: root.active-kind == 0 ? #e51f2a : #cececa;
-                        Text { text: @tr("Presets") + "  " + root.presets.length; color: root.active-kind == 0 ? white : #444448; font-size: 10px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
+                        Text { text: @tr("Presets") + "  " + root.presets.length; color: root.active-kind == 0 ? white : #444448; font-size: 11px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
                         tab-preset := TouchArea { mouse-cursor: pointer; accessible-role: AccessibleRole.tab; accessible-label: @tr("Presets"); clicked => { root.active-kind = 0; } }
                     }
                     Rectangle {
                         horizontal-stretch: 1; background: root.active-kind == 1 ? #e51f2a : tab-stash.has-hover ? #ededE9 : white; border-width: 1px; border-color: root.active-kind == 1 ? #e51f2a : #cececa;
-                        Text { text: @tr("Stash") + "  " + root.stashes.length; color: root.active-kind == 1 ? white : #444448; font-size: 10px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
+                        Text { text: @tr("Stash") + "  " + root.stashes.length; color: root.active-kind == 1 ? white : #444448; font-size: 11px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
                         tab-stash := TouchArea { mouse-cursor: pointer; accessible-role: AccessibleRole.tab; accessible-label: @tr("Stash"); clicked => { root.active-kind = 1; } }
                     }
                 }
                 Rectangle {
                     vertical-stretch: 1; background: transparent;
-                    if (root.active-kind == 0 ? root.presets.length : root.stashes.length) == 0: Text { text: root.loading ? @tr("Loading…") : root.active-kind == 0 ? @tr("No Presets yet") : @tr("No Stash entries yet"); color: #818185; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                    if (root.active-kind == 0 ? root.presets.length : root.stashes.length) == 0: Text { text: root.loading ? @tr("Loading…") : root.active-kind == 0 ? @tr("No Presets yet") : @tr("No Stash entries yet"); color: #77777c; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
                     if (root.active-kind == 0 ? root.presets.length : root.stashes.length) > 0: Flickable {
                         viewport-width: self.width;
                         viewport-height: rows.preferred-height;
@@ -389,8 +404,8 @@ export component AppWindow inherits Window {
             }
         }
 
-        if root.operation-state == 2: Text { height: 20px; text: root.operation-duplicate-count > 0 ? @tr("Done. Matching save content already existed.") : @tr("Done."); color: #247342; font-size: 10px; font-weight: 700; horizontal-alignment: center; }
-        if root.operation-state == 3 && root.modal-kind == 0: Text { height: 28px; text: Guidance.for-action(root.operation-action); color: #a51e25; font-size: 10px; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; }
+        if root.operation-state == 2: Text { height: 20px; text: root.operation-duplicate-count > 0 ? @tr("Done. Matching save content already existed.") : @tr("Done."); color: #247342; font-size: 11px; font-weight: 700; horizontal-alignment: center; }
+        if root.operation-state == 3 && root.modal-kind == 0: Text { height: 28px; text: Guidance.for-action(root.operation-action); color: #a51e25; font-size: 11px; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; }
     }
 
     if root.modal-kind != 0: Rectangle {
@@ -409,26 +424,26 @@ export component AppWindow inherits Window {
                 Text { text: root.selected-alias; color: #e51f2a; font-size: 15px; font-weight: 750; overflow: elide; }
                 if root.modal-kind == 1: VerticalLayout {
                     spacing: 5px;
-                    Text { height: 18px; text: @tr("WHAT HAPPENS AFTER YOU CONFIRM"); color: #68686c; font-size: 9px; font-weight: 820; letter-spacing: 0.6px; }
-                    Text { height: 18px; text: @tr("No action needed — Apply runs this sequence automatically."); color: #858589; font-size: 9px; }
+                    Text { height: 18px; text: @tr("WHAT HAPPENS AFTER YOU CONFIRM"); color: #68686c; font-size: 10px; font-weight: 820; letter-spacing: 0.6px; }
+                    Text { height: 18px; text: @tr("No action needed — Apply runs this sequence automatically."); color: #77777c; font-size: 10px; }
                     TimelineStep { number: "1"; connect-next: true; title: root.current-state == 2 ? @tr("Create Current") : @tr("Back up Current"); detail: root.current-state == 2 ? @tr("No existing Current will be replaced") : @tr("The active save becomes a new Stash"); }
                     TimelineStep { number: "2"; connect-next: true; title: @tr("Apply selected save"); detail: @tr("The selected saved copy remains unchanged"); }
                     TimelineStep { number: "3"; title: @tr("Verify and finish"); detail: @tr("Any verification failure restores the original Current"); }
-                    if root.current-state == 2: Text { height: 22px; text: @tr("Current filename") + "  " + root.activation-filename; color: #66666a; font-size: 10px; font-weight: 650; }
+                    if root.current-state == 2: Text { height: 22px; text: @tr("Current filename") + "  " + root.activation-filename; color: #66666a; font-size: 11px; font-weight: 650; }
                 }
                 if root.modal-kind == 2: VerticalLayout {
                     spacing: 10px;
                     LabeledInput { label: @tr("Name"); value <=> root.edit-alias; enabled: root.operation-state != 1; }
                     LabeledInput { label: @tr("Description (optional)"); value <=> root.edit-description; enabled: root.operation-state != 1; }
                 }
-                if root.modal-kind == 3: Text { height: 78px; text: @tr("Permanently delete this saved copy? This cannot be undone. Current and all other saved copies stay unchanged."); color: #55555a; font-size: 11px; wrap: word-wrap; vertical-alignment: center; }
+                if root.modal-kind == 3: Text { height: 78px; text: @tr("Permanently delete this saved copy? This cannot be undone. Current and all other saved copies stay unchanged."); color: #55555a; font-size: 12px; wrap: word-wrap; vertical-alignment: center; }
                 if root.operation-state == 1: Rectangle {
                     height: 44px; background: #efefec;
-                    Text { text: root.operation-kind == 0 ? @tr("Applying and verifying…") : root.operation-kind == 1 ? @tr("Activating and verifying…") : root.operation-kind == 6 ? @tr("Saving changes…") : @tr("Deleting saved copy…"); color: #55555a; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    Text { text: root.operation-kind == 0 ? @tr("Applying and verifying…") : root.operation-kind == 1 ? @tr("Activating and verifying…") : root.operation-kind == 6 ? @tr("Saving changes…") : @tr("Deleting saved copy…"); color: #55555a; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                 }
                 if root.operation-state == 3: Rectangle {
                     height: 52px; background: #fff1f1; border-width: 1px; border-color: #efb7ba;
-                    Text { x: 10px; width: parent.width - 20px; text: Guidance.for-action(root.operation-action); color: #a51e25; font-size: 9px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+                    Text { x: 10px; width: parent.width - 20px; text: Guidance.for-action(root.operation-action); color: #a51e25; font-size: 10px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
                 }
                 Rectangle { vertical-stretch: 1; background: transparent; }
                 if root.operation-state != 1: HorizontalLayout {
@@ -457,11 +472,11 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 padding: 32px; spacing: 14px; alignment: center;
                 Text { text: @tr("MIRROR'S EDGE IS RUNNING"); color: #1d1d20; font-size: 16px; font-weight: 850; horizontal-alignment: center; }
-                Text { text: @tr("Save changes are locked until the game closes."); color: #66666a; font-size: 11px; horizontal-alignment: center; }
+                Text { text: @tr("Save changes are locked until the game closes."); color: #66666a; font-size: 12px; horizontal-alignment: center; }
                 Rectangle { height: 1px; background: #e3e3df; }
-                Text { text: @tr("CURRENT"); color: #88888c; font-size: 9px; font-weight: 800; horizontal-alignment: center; }
-                Text { text: root.current-state == 1 ? (root.current-modified == "" ? @tr("Active save verified") : @tr("Modified") + "  " + root.current-modified) : @tr("Active save unavailable"); color: #303034; font-size: 11px; font-weight: 650; horizontal-alignment: center; }
-                Text { text: @tr("Waiting for the game to close…"); color: #a76118; font-size: 9px; horizontal-alignment: center; }
+                Text { text: @tr("CURRENT"); color: #7d7d82; font-size: 10px; font-weight: 800; horizontal-alignment: center; }
+                Text { text: root.current-state == 1 ? (root.current-modified == "" ? @tr("Active save verified") : @tr("Modified") + "  " + root.current-modified) : @tr("Active save unavailable"); color: #303034; font-size: 12px; font-weight: 650; horizontal-alignment: center; }
+                Text { text: @tr("Waiting for the game to close…"); color: #a76118; font-size: 10px; horizontal-alignment: center; }
             }
         }
     }

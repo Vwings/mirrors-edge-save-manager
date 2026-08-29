@@ -54,8 +54,8 @@ EA Games\Mirror's Edge\TdGame\Savefiles\
 ```
 
 The application should discover the Documents known folder rather than assuming
-that it is literally under `%USERPROFILE%\Documents`, because Documents can be
-redirected or backed up by OneDrive.
+that it is literally under `%USERPROFILE%\Documents`, because Windows controls
+the folder's physical location.
 
 Current is always the file named from the current Windows account:
 `<account-name>.dat`. Other `.dat` files in `Savefiles` are treated as user-owned
@@ -307,9 +307,9 @@ Any failure before commit must leave the original Current available. Startup
 must inspect unfinished journals and either restore the old file or finish a
 replacement only after verifying the recorded fingerprints.
 
-Cloud sync, antivirus scanning, file locks, and controlled-folder access may
-cause replacement to fail. These must produce an actionable error and never be
-handled by deleting the original Current first.
+File locks or denied filesystem operations may cause replacement to fail. These
+must produce an actionable error and never be handled by deleting the original
+Current first.
 
 When Current is missing but the native save directory exists, first activation
 is a separate operation rather than an ordinary Apply because there is no
