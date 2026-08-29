@@ -258,13 +258,15 @@ Controlled Folder Access, antivirus delay, and Windows-version checks remain.
 - Added a real Windows sharing-violation test that permits Current reads but
   denies replacement sharing, verifies Current remains byte-identical, and
   confirms startup recovery aborts and cleans the failed replacement.
-- Finalized the application icon from the maintainer-supplied image by removing
-  its watermark, tightening the red border, balancing the square composition,
-  and retaining the original graphic unchanged. The optimized PNG and 16--256
+- Refreshed the application icon from the maintainer-supplied transparent-style
+  source by removing its baked checkerboard and separate watermark, recovering
+  the white outer silhouette, and scaling the subject to fill the square while
+  retaining a small transparent safety margin. The compressed PNG and 16--256
   px ICO are used by Windows Explorer and the executable. The Slint window uses
-  the verified 32 px ICO layer directly instead of asking Windows to reduce a
-  256 px bitmap at runtime, while a dedicated high-quality downscale keeps the
-  same graphic clearer in the title header.
+  the dedicated 32 px layer, while a separate high-quality downscale keeps the
+  same graphic clearer in the title header. A restrained UI-only shadow behind
+  the header icon separates its white outline from the light application
+  background without changing the image asset.
 - Embedded package-derived file and product versions plus descriptive Windows
   metadata in the executable. The debug executable's associated icon and
   version properties were read back from the built PE for verification.
@@ -282,7 +284,7 @@ permanent preview column with the compact single-column UI:
 
 ```text
 cargo fmt --check
-cargo test                         # 70 passed (69 library, 1 UI helper)
+cargo test                         # 73 passed (71 library, 2 UI helpers)
 cargo clippy --all-targets -- -D warnings
 cargo build --release
 ```
@@ -296,9 +298,10 @@ The release binary now links every operation exposed by the version-one UI. It
 is still not the final size measurement because manual Windows scaling
 inspection remains.
 
-The Windows metadata and finalized icon passed `cargo fmt --check`, all 70
-tests, strict Clippy, and a dev build. A release rebuild remains intentionally
-deferred until semantic versioning and packaging are finalized.
+The Windows metadata and refreshed transparent icon passed `cargo fmt --check`,
+all 73 tests, strict Clippy, and a release build. The embedded executable icon
+was extracted successfully, and the running release window confirmed the new
+title-bar and header artwork without altering the active game process.
 
 ## Current Worktree Note
 

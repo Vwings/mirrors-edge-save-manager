@@ -305,7 +305,17 @@ export component AppWindow inherits Window {
         HorizontalLayout {
             height: 44px; spacing: 10px; alignment: start;
             z: 10;
-            Image { width: 40px; height: 40px; source: @image-url("../resources/header-logo.png"); image-fit: contain; }
+            Rectangle {
+                width: 40px;
+                height: 40px;
+                background: white;
+                border-radius: 3px;
+                drop-shadow-color: #1717192e;
+                drop-shadow-offset-x: 0px;
+                drop-shadow-offset-y: 1px;
+                drop-shadow-blur: 5px;
+                Image { width: parent.width; height: parent.height; source: @image-url("../resources/header-logo.png"); image-fit: contain; }
+            }
             VerticalLayout {
                 horizontal-stretch: 1; spacing: 0px;
                 Text { text: @tr("MIRROR'S EDGE"); color: #171719; font-size: 14px; font-weight: 850; letter-spacing: 1px; }
@@ -446,7 +456,6 @@ export component AppWindow inherits Window {
             background: white; border-width: 1px; border-color: #d2d2ce;
             VerticalLayout {
                 padding: 32px; spacing: 14px; alignment: center;
-                Rectangle { width: 42px; height: 4px; background: #e51f2a; }
                 Text { text: @tr("MIRROR'S EDGE IS RUNNING"); color: #1d1d20; font-size: 16px; font-weight: 850; horizontal-alignment: center; }
                 Text { text: @tr("Save changes are locked until the game closes."); color: #66666a; font-size: 11px; horizontal-alignment: center; }
                 Rectangle { height: 1px; background: #e3e3df; }
