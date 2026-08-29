@@ -1,6 +1,6 @@
 # Project Status and Handoff
 
-Last updated: 2026-08-25
+Last updated: 2026-08-29
 
 This is a temporary handoff document for development sessions. Update it when
 a milestone changes, a major decision is made, or the next task changes. Remove
@@ -268,6 +268,12 @@ Controlled Folder Access, antivirus delay, and Windows-version checks remain.
 - Embedded package-derived file and product versions plus descriptive Windows
   metadata in the executable. The debug executable's associated icon and
   version properties were read back from the built PE for verification.
+- Missing native save directories now show an explicit instruction to launch
+  Mirror's Edge once, and StoredSave rows disable Apply before opening its
+  confirmation while leaving unrelated library management available.
+- Added bundled English/Simplified Chinese UI translations, Windows display
+  language detection, a persistent top-bar language selector, and settings
+  compatibility for the explicit locale choice.
 
 ## Last Verification
 
@@ -304,14 +310,14 @@ adjacent `NOTICE.md`.
 
 ## Planned Productization Work
 
-The following scope was confirmed on 2026-08-25 and has not started. Preserve
+The following scope was confirmed on 2026-08-25 and is tracked below. Preserve
 this order only where one item is a dependency of another; do not turn the list
 into unrelated release ceremony.
 
-- [ ] Improve the no-game/no-save-directory state with an explicit instruction
+- [x] Improve the no-game/no-save-directory state with an explicit instruction
   to launch Mirror's Edge once, and disable Apply before a misleading modal can
   open. Keep the tested account-named Current and ignored-backup behavior.
-- [ ] Add English and Simplified Chinese localization. Choose the first-run
+- [x] Add English and Simplified Chinese localization. Choose the first-run
   language from the Windows display language, expose a compact top-bar selector,
   and persist an explicit user choice in application settings.
 - [ ] Audit the typography hierarchy because the current body and metadata text
@@ -327,7 +333,8 @@ into unrelated release ceremony.
   do not refactor solely to reduce the number of top-level files.
 - [ ] Design and document the GitHub Release process, including final artifacts,
   version/tag relationship, checksums, release notes, and whether publication is
-  initially manual or automated.
+  initially manual or automated. Add dynamic README badges for CI status and
+  the latest release once those data sources are available.
 
 ## Next Tasks
 

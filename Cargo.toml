@@ -7,6 +7,7 @@ license = "GPL-3.0-only"
 repository = "https://github.com/Vwings/mirrors-edge-save-manager"
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 flate2 = "1.1.9"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -24,6 +25,7 @@ uuid = { version = "1.24.0", features = ["v4"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",

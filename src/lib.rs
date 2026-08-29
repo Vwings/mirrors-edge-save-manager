@@ -9,6 +9,7 @@ pub mod first_activation;
 pub mod game_process;
 pub mod import_save;
 pub mod known_folders;
+pub mod locale;
 pub mod mutation_guard;
 pub mod operation_lock;
 pub mod overview;

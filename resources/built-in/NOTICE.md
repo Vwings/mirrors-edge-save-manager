@@ -3,7 +3,7 @@
 The compressed `.dat` resources in this directory are standard Mirror's Edge
 PC save files. The completed-campaign and 69% speedrun resources originated as
 community-circulated saves whose original authors and download locations are
-unknown. The New Game and clean all-Time-Trials-unlocked resources were produced
+unknown. See the README for the completed-campaign and 69% source links. The New Game and clean all-Time-Trials-unlocked resources were produced
 as controlled local game outputs. The repository maintainer reviewed all four
 as ordinary game saves, found no known personal or sensitive information, and
 accepted the redistribution risk.

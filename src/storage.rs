@@ -182,6 +182,16 @@ impl StoredSaveRepository {
         &self.root
     }
 
+    pub fn preferred_language(&self) -> Result<Option<String>, StorageError> {
+        Ok(self.read_settings()?.language)
+    }
+
+    pub fn set_preferred_language(&self, language: Option<String>) -> Result<(), StorageError> {
+        let mut settings = self.read_settings()?;
+        settings.language = language;
+        self.write_settings(&settings)
+    }
+
     pub fn capture(
         &self,
         source: &Path,
@@ -548,6 +558,8 @@ impl StoredSaveRepository {
 struct SettingsDocument {
     schema_version: u32,
     hidden_built_in_ids: BTreeSet<String>,
+    #[serde(default)]
+    language: Option<String>,
 }
 
 impl Default for SettingsDocument {
@@ -555,6 +567,7 @@ impl Default for SettingsDocument {
         Self {
             schema_version: SETTINGS_SCHEMA_VERSION,
             hidden_built_in_ids: BTreeSet::new(),
+            language: None,
         }
     }
 }
@@ -1071,6 +1084,20 @@ mod tests {
         );
 
         assert!(matches!(result, Err(StorageError::Io { .. })));
+    }
+
+    #[test]
+    fn persists_preferred_language_without_affecting_hidden_built_ins() {
+        let directory = TempDir::new().unwrap();
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+
+        assert_eq!(None, repository.preferred_language().unwrap());
+        repository
+            .set_preferred_language(Some("zh-CN".into()))
+            .unwrap();
+
+        let reopened = StoredSaveRepository::new(directory.path().join("app-data"));
+        assert_eq!(Some("zh-CN".into()), reopened.preferred_language().unwrap());
     }
 
     #[test]

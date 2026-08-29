@@ -95,6 +95,58 @@ component IconButton inherits Rectangle {
     }
 }
 
+component LanguagePicker inherits Rectangle {
+    in property <string> language;
+    callback language-selected(string);
+    private property <bool> menu-open: false;
+    width: 34px;
+    height: 34px;
+    border-width: 1px;
+    border-color: menu-open || touch.has-hover ? #77777b : #c7c7c3;
+    background: touch.pressed ? #dededb : touch.has-hover ? #f3f3f0 : white;
+    Path {
+        x: 8px; y: 8px; width: 18px; height: 18px;
+        commands: "M 9 1 A 8 8 0 1 1 8.9 1 M 1 9 L 17 9 M 9 1 C 5.5 5 5.5 13 9 17 M 9 1 C 12.5 5 12.5 13 9 17";
+        stroke: #333337;
+        stroke-width: 1.2px;
+        fill: transparent;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        accessible-role: AccessibleRole.button;
+        accessible-label: @tr("Language");
+        clicked => { root.menu-open = !root.menu-open; }
+    }
+    if root.menu-open: Rectangle {
+        x: -52px;
+        y: 39px;
+        width: 86px;
+        height: 78px;
+        z: 10;
+        border-width: 1px;
+        border-color: #c7c7c3;
+        background: white;
+        VerticalLayout {
+            padding: 5px;
+            spacing: 4px;
+            ActionButton {
+                width: 74px;
+                height: 30px;
+                primary: root.language == "en";
+                label: "English";
+                activated => { root.language-selected("en"); root.menu-open = false; }
+            }
+            ActionButton {
+                width: 74px;
+                height: 30px;
+                primary: root.language == "zh-CN";
+                label: "中文";
+                activated => { root.language-selected("zh-CN"); root.menu-open = false; }
+            }
+        }
+    }
+}
+
 component LabeledInput inherits Rectangle {
     in property <string> label;
     in-out property <string> value;
@@ -135,7 +187,7 @@ component CurrentPanel inherits Rectangle {
             horizontal-stretch: 1; spacing: 4px;
             Text { text: @tr("CURRENT"); color: #171719; font-size: 17px; font-weight: 850; letter-spacing: 1px; }
             Text {
-                text: root.current-state == 1 ? @tr("Active game save") : root.current-state == 2 ? @tr("No active save yet") : root.current-state == 3 ? @tr("Save folder not found") : root.current-state == 0 ? @tr("Checking active save…") : Guidance.for-action(root.error-action);
+                text: root.current-state == 1 ? @tr("Active game save") : root.current-state == 2 ? @tr("No active save yet") : root.current-state == 3 ? @tr("Launch Mirror's Edge once to create its save folder.") : root.current-state == 0 ? @tr("Checking active save…") : Guidance.for-action(root.error-action);
                 color: root.current-state == 1 ? #606065 : #9b5b18;
                 font-size: 11px;
             }
@@ -149,6 +201,7 @@ component CurrentPanel inherits Rectangle {
 component SaveRow inherits Rectangle {
     in property <SaveListItem> save;
     in property <bool> mutation-enabled;
+    in property <bool> apply-enabled;
     callback action(int, SaveListItem);
     height: 82px;
     border-width: 1px;
@@ -164,7 +217,7 @@ component SaveRow inherits Rectangle {
         if root.save.origin != 0: IconButton { icon-kind: 0; accessible-name: @tr("Edit name and description"); enabled: root.mutation-enabled; activated => { root.action(1, root.save); } }
         if root.save.kind == 1: ActionButton { width: 96px; primary: false; enabled: root.mutation-enabled; label: @tr("Make Preset"); activated => { root.action(3, root.save); } }
         if root.save.origin != 0: IconButton { icon-kind: 1; danger: true; accessible-name: @tr("Delete this saved copy"); enabled: root.mutation-enabled; activated => { root.action(2, root.save); } }
-        ActionButton { width: 78px; enabled: root.mutation-enabled; label: @tr("Apply"); activated => { root.action(0, root.save); } }
+        ActionButton { width: 78px; enabled: root.apply-enabled; label: @tr("Apply"); activated => { root.action(0, root.save); } }
     }
 }
 
@@ -229,18 +282,21 @@ export component AppWindow inherits Window {
     in-out property <int> operation-kind;
     in-out property <int> operation-action: -1;
     in-out property <int> operation-duplicate-count;
+    in-out property <string> language: "en";
     in-out property <int> modal-kind: 0;
     private property <int> active-kind: 0;
     private property <string> selected-alias;
     private property <string> edit-alias;
     private property <string> edit-description;
     private property <bool> mutation-ready: !root.loading && root.operation-state != 1 && root.game-state == 1 && (root.recovery-state == 1 || root.recovery-state == 2);
+    out property <bool> apply-ready: root.mutation-ready && (root.current-state == 1 || root.current-state == 2);
     callback refresh-requested;
     callback game-poll-requested;
     callback operation-confirmed(string, bool, string);
     callback capture-requested(bool);
     callback import-requested;
     callback manage-requested(int, string, string, string);
+    callback language-requested(string);
 
     game-poll := Timer { interval: 1500ms; running: true; triggered => { root.game-poll-requested(); } }
 
@@ -248,12 +304,14 @@ export component AppWindow inherits Window {
         padding: 22px; spacing: 14px;
         HorizontalLayout {
             height: 44px; spacing: 10px; alignment: start;
+            z: 10;
             Image { width: 40px; height: 40px; source: @image-url("../resources/header-logo.png"); image-fit: contain; }
             VerticalLayout {
                 horizontal-stretch: 1; spacing: 0px;
                 Text { text: @tr("MIRROR'S EDGE"); color: #171719; font-size: 14px; font-weight: 850; letter-spacing: 1px; }
                 Text { text: @tr("SAVE MANAGER"); color: #8a8a8e; font-size: 8px; font-weight: 750; letter-spacing: 1px; }
             }
+            LanguagePicker { language: root.language; language-selected(language) => { root.language-requested(language); } }
             IconButton { icon-kind: 2; accessible-name: @tr("Refresh saves"); enabled: !root.loading && root.operation-state != 1; activated => { root.refresh-requested(); } }
         }
 
@@ -301,6 +359,7 @@ export component AppWindow inherits Window {
                             for save in root.active-kind == 0 ? root.presets : root.stashes: SaveRow {
                                 save: save;
                                 mutation-enabled: root.mutation-ready;
+                                apply-enabled: root.apply-ready;
                                 action(action, save) => {
                                     root.selected-save-id = save.id;
                                     root.selected-alias = save.alias;

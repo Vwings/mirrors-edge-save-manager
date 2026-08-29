@@ -4,7 +4,11 @@ fn main() {
     println!("cargo:rerun-if-changed=resources/app-icon.ico");
     println!("cargo:rerun-if-changed=resources/header-logo.png");
     println!("cargo:rerun-if-changed=resources/window-icon.png");
-    slint_build::compile("ui/app-window.slint").expect("failed to compile Slint UI");
+    let config = slint_build::CompilerConfiguration::new()
+        .with_bundled_translations("translations")
+        .with_default_translation_context(slint_build::DefaultTranslationContext::None);
+    slint_build::compile_with_config("ui/app-window.slint", config)
+        .expect("failed to compile Slint UI");
 
     #[cfg(windows)]
     {

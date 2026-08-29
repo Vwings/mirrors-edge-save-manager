@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use chrono::{Datelike, Timelike};
 use mirrors_edge_save_manager::application_error::UserAction;
 use mirrors_edge_save_manager::apply::{ApplyRequest, apply};
 use mirrors_edge_save_manager::current_capture::{
@@ -17,6 +18,7 @@ use mirrors_edge_save_manager::first_activation::{
 };
 use mirrors_edge_save_manager::game_process::is_game_running;
 use mirrors_edge_save_manager::import_save::{ImportSaveRequest, import_save};
+use mirrors_edge_save_manager::locale;
 use mirrors_edge_save_manager::overview::{
     ApplicationOverview, CurrentSaveOverview, GameOverview, RecoveryOverview, StoredSaveOverview,
     load_application_overview,
@@ -34,7 +36,31 @@ slint::include_modules!();
 
 fn main() -> Result<(), slint::PlatformError> {
     let window = AppWindow::new()?;
+    let repository = StoredSaveRepository::for_current_user().ok();
+    let language = repository
+        .as_ref()
+        .and_then(|repository| repository.preferred_language().ok().flatten())
+        .filter(|language| locale::supported(language))
+        .unwrap_or_else(|| locale::initial_language().to_owned());
+    select_language(&language);
+    window.set_language(language.clone().into());
     center_window(&window);
+    let weak = window.as_weak();
+    window.on_language_requested(move |language| {
+        if !locale::supported(language.as_str()) {
+            return;
+        }
+        select_language(language.as_str());
+        if let Some(window) = weak.upgrade() {
+            window.set_language(language.clone());
+        }
+        let language = language.to_string();
+        std::thread::spawn(move || {
+            if let Ok(repository) = StoredSaveRepository::for_current_user() {
+                let _ = repository.set_preferred_language(Some(language));
+            }
+        });
+    });
     let weak = window.as_weak();
     window.on_refresh_requested(move || refresh_overview(weak.clone()));
     let game_poll_in_flight = Arc::new(AtomicBool::new(false));
@@ -72,6 +98,12 @@ fn main() -> Result<(), slint::PlatformError> {
     window.run()
 }
 
+fn select_language(language: &str) {
+    if let Err(error) = slint::select_bundled_translation(language) {
+        eprintln!("failed to select bundled language {language}: {error}");
+    }
+}
+
 #[cfg(windows)]
 fn center_window(window: &AppWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
@@ -100,6 +132,10 @@ fn center_window(window: &AppWindow) {
 fn center_window(_window: &AppWindow) {}
 
 fn refresh_overview(window: slint::Weak<AppWindow>) {
+    let language = window
+        .upgrade()
+        .map(|window| window.get_language().to_string())
+        .unwrap_or_else(|| "en".into());
     if let Some(window) = window.upgrade() {
         window.set_selected_save_id(SharedString::default());
         window.set_presets(model(Vec::new()));
@@ -122,8 +158,9 @@ fn refresh_overview(window: slint::Weak<AppWindow>) {
     std::thread::spawn(move || {
         let overview = load_application_overview();
         let activation = load_activation_suggestion(&overview);
-        let _ = window
-            .upgrade_in_event_loop(move |window| apply_overview(window, overview, activation));
+        let _ = window.upgrade_in_event_loop(move |window| {
+            apply_overview(window, overview, activation, language)
+        });
     });
 }
 
@@ -196,6 +233,7 @@ fn apply_overview(
     window: AppWindow,
     overview: ApplicationOverview,
     activation: ActivationSuggestion,
+    language: String,
 ) {
     match overview.game {
         GameOverview::Available => {
@@ -242,7 +280,7 @@ fn apply_overview(
             window.set_current_modified(
                 current
                     .modified_at
-                    .map(format_system_time)
+                    .map(|time| format_system_time(time, &language))
                     .unwrap_or_default()
                     .into(),
             );
@@ -266,13 +304,13 @@ fn apply_overview(
         .stored_saves
         .presets
         .into_iter()
-        .map(save_list_item)
+        .map(|save| save_list_item(save, &language))
         .collect();
     let stashes = overview
         .stored_saves
         .stashes
         .into_iter()
-        .map(save_list_item)
+        .map(|save| save_list_item(save, &language))
         .collect();
     window.set_presets(model(presets));
     window.set_stashes(model(stashes));
@@ -375,6 +413,10 @@ fn finish_operation(
     window: slint::Weak<AppWindow>,
     result: Result<usize, mirrors_edge_save_manager::application_error::ApplicationError>,
 ) {
+    let language = window
+        .upgrade()
+        .map(|window| window.get_language().to_string())
+        .unwrap_or_else(|| "en".into());
     let overview = load_application_overview();
     let activation_suggestion = load_activation_suggestion(&overview);
     let (operation_state, operation_action, duplicate_count) = match result {
@@ -382,7 +424,12 @@ fn finish_operation(
         Err(error) => (3, action_code(error.action()), 0),
     };
     let _ = window.upgrade_in_event_loop(move |window| {
-        apply_overview(window.clone_strong(), overview, activation_suggestion);
+        apply_overview(
+            window.clone_strong(),
+            overview,
+            activation_suggestion,
+            language,
+        );
         if operation_state == 2 {
             window.set_selected_save_id(SharedString::default());
             window.set_modal_kind(0);
@@ -485,7 +532,7 @@ fn set_missing_current(window: &AppWindow, state: i32, _directory: std::path::Pa
     window.set_current_detail(SharedString::default());
 }
 
-fn save_list_item(save: StoredSaveOverview) -> SaveListItem {
+fn save_list_item(save: StoredSaveOverview, language: &str) -> SaveListItem {
     SaveListItem {
         id: save.id.into(),
         kind: match save.kind {
@@ -494,7 +541,7 @@ fn save_list_item(save: StoredSaveOverview) -> SaveListItem {
         },
         alias: save.alias.into(),
         description: save.description.unwrap_or_default().into(),
-        created_at: format_system_time(save.created_at).into(),
+        created_at: format_system_time(save.created_at, language).into(),
         origin: match save.origin {
             StoredSaveOrigin::BuiltIn => 0,
             StoredSaveOrigin::Current => 1,
@@ -511,32 +558,28 @@ fn action_code(action: UserAction) -> i32 {
     action as i32
 }
 
-fn format_system_time(time: SystemTime) -> String {
+fn format_system_time(time: SystemTime, language: &str) -> String {
     let Ok(duration) = time.duration_since(UNIX_EPOCH) else {
         return String::new();
     };
-    let seconds = duration.as_secs() as i64;
-    let days = seconds / 86_400;
-    let seconds_in_day = seconds % 86_400;
-    let hour = seconds_in_day / 3_600;
-    let minute = seconds_in_day % 3_600 / 60;
-    let (year, month, day) = civil_date_from_days(days);
-    format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02} UTC")
-}
-
-fn civil_date_from_days(days_since_epoch: i64) -> (i64, i64, i64) {
-    let days = days_since_epoch + 719_468;
-    let era = days / 146_097;
-    let day_of_era = days - era * 146_097;
-    let year_of_era =
-        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let mut year = year_of_era + era * 400;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month_position = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_position + 2) / 5 + 1;
-    let month = month_position + if month_position < 10 { 3 } else { -9 };
-    year += i64::from(month <= 2);
-    (year, month, day)
+    let local = chrono::DateTime::<chrono::Local>::from(
+        chrono::DateTime::<chrono::Utc>::from_timestamp(
+            duration.as_secs() as i64,
+            duration.subsec_nanos(),
+        )
+        .unwrap_or_default(),
+    );
+    let year = local.year();
+    let month = local.month();
+    let day = local.day();
+    let hour = local.hour();
+    let minute = local.minute();
+    let offset = local.offset().to_string();
+    if language == "zh-CN" {
+        format!("{year:04}年{month:02}月{day:02}日 {hour:02}:{minute:02} {offset}")
+    } else {
+        format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02} {offset}")
+    }
 }
 
 #[cfg(test)]
@@ -545,10 +588,38 @@ mod tests {
 
     #[test]
     fn formats_utc_timestamp_for_ui() {
-        assert_eq!(format_system_time(UNIX_EPOCH), "1970-01-01 00:00 UTC");
-        assert_eq!(
-            format_system_time(UNIX_EPOCH + std::time::Duration::from_secs(1_785_715_200)),
-            "2026-08-03 00:00 UTC"
-        );
+        let english = format_system_time(UNIX_EPOCH, "en");
+        let chinese = format_system_time(UNIX_EPOCH, "zh-CN");
+        let local =
+            chrono::DateTime::<chrono::Local>::from(chrono::DateTime::<chrono::Utc>::UNIX_EPOCH);
+        assert!(english.contains(&format!(
+            "{:04}-{:02}-{:02}",
+            local.year(),
+            local.month(),
+            local.day()
+        )));
+        assert!(chinese.contains(&format!(
+            "{:04}年{:02}月{:02}日",
+            local.year(),
+            local.month(),
+            local.day()
+        )));
+    }
+
+    #[test]
+    fn apply_is_unavailable_when_save_directory_is_missing() {
+        let window = AppWindow::new().expect("create test window");
+        window.set_loading(false);
+        window.set_game_state(1);
+        window.set_recovery_state(1);
+
+        window.set_current_state(3);
+        assert!(!window.get_apply_ready());
+
+        window.set_current_state(2);
+        assert!(window.get_apply_ready());
+
+        window.set_current_state(1);
+        assert!(window.get_apply_ready());
     }
 }

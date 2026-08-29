@@ -1,0 +1,226 @@
+msgid ""
+msgstr ""
+"Language: zh-CN\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Mirror's Edge Save Manager"
+msgstr "Mirror's Edge Save Manager"
+
+msgid "MIRROR'S EDGE"
+msgstr "MIRROR'S EDGE"
+
+msgid "SAVE MANAGER"
+msgstr "SAVE MANAGER"
+
+msgid "CURRENT"
+msgstr "当前存档"
+
+msgid "Active game save"
+msgstr "当前游戏存档"
+
+msgid "No active save yet"
+msgstr "尚未创建当前存档"
+
+msgid "Launch Mirror's Edge once to create its save folder."
+msgstr "请启动一次 Mirror's Edge，让游戏创建存档文件夹。"
+
+msgid "Save as Stash"
+msgstr "保存为暂存"
+
+msgid "Save as Preset"
+msgstr "保存为预设"
+
+msgid "SAVED COPIES"
+msgstr "已保存副本"
+
+msgid "Import .dat"
+msgstr "导入 .dat"
+
+msgid "Presets"
+msgstr "预设"
+
+msgid "Stash"
+msgstr "暂存"
+
+msgid "Built-in Preset"
+msgstr "内置预设"
+
+msgid "Built-in"
+msgstr "内置"
+
+msgid "Apply"
+msgstr "应用"
+
+msgid "Make Preset"
+msgstr "制作预设"
+
+msgid "Activate"
+msgstr "激活"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Refresh saves"
+msgstr "刷新存档"
+
+msgid "No Presets yet"
+msgstr "暂无预设"
+
+msgid "No Stash entries yet"
+msgstr "暂无暂存项"
+
+msgid "Loading…"
+msgstr "正在加载…"
+
+msgid "Done."
+msgstr "完成。"
+
+msgid "Done. Matching save content already existed."
+msgstr "完成。已有内容相同的存档。"
+
+msgid "EDIT SAVED COPY"
+msgstr "编辑已保存副本"
+
+msgid "DELETE SAVED COPY"
+msgstr "删除已保存副本"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Description (optional)"
+msgstr "描述（可选）"
+
+msgid "Save changes"
+msgstr "保存更改"
+
+msgid "Delete forever"
+msgstr "永久删除"
+
+msgid "MIRROR'S EDGE IS RUNNING"
+msgstr "MIRROR'S EDGE 正在运行"
+
+msgid "Save changes are locked until the game closes."
+msgstr "游戏关闭前无法修改存档。"
+
+msgid "Waiting for the game to close…"
+msgstr "等待游戏关闭…"
+
+msgid "Enter a name from 1 to 80 characters."
+msgstr "请输入 1 到 80 个字符的名称。"
+
+msgid "Choose a valid Mirror's Edge .dat file."
+msgstr "请选择有效的 Mirror's Edge .dat 文件。"
+
+msgid "Close Mirror's Edge, then try again."
+msgstr "请关闭 Mirror's Edge 后重试。"
+
+msgid "Wait for the other save operation to finish."
+msgstr "请等待其他存档操作完成。"
+
+msgid "Refresh so transaction recovery can finish."
+msgstr "请刷新，让事务恢复完成。"
+
+msgid "Transaction recovery needs manual attention."
+msgstr "事务恢复需要手动处理。"
+
+msgid "Use first activation instead of ordinary Apply."
+msgstr "请使用首次激活，而不是普通应用。"
+
+msgid "Refresh Current and review the operation again."
+msgstr "请刷新当前存档并重新检查操作。"
+
+msgid "Check folder access and Windows security settings."
+msgstr "请检查文件夹访问权限和 Windows 安全设置。"
+
+msgid "The selected saved copy is damaged or unavailable."
+msgstr "所选保存副本已损坏或不可用。"
+
+msgid "Select a Stash before using Make Preset."
+msgstr "请先选择暂存项，再使用“制作预设”。"
+
+msgid "Confirm the exact Windows account save filename."
+msgstr "请确认准确的 Windows 账户存档文件名。"
+
+msgid "This operation requires supported Windows APIs."
+msgstr "此操作需要受支持的 Windows API。"
+
+msgid "The operation did not complete. Try again."
+msgstr "操作未完成，请重试。"
+
+msgid "The operation failed. Report the problem if it repeats."
+msgstr "操作失败；如果问题重复出现，请报告。"
+
+msgid "No action needed — Apply runs this sequence automatically."
+msgstr "无需额外操作——应用会自动执行此流程。"
+
+msgid "WHAT HAPPENS AFTER YOU CONFIRM"
+msgstr "确认后将发生什么"
+
+msgid "ACTIVATE CURRENT"
+msgstr "激活当前存档"
+
+msgid "APPLY SAVE"
+msgstr "应用存档"
+
+msgid "Create Current"
+msgstr "创建当前存档"
+
+msgid "Back up Current"
+msgstr "备份当前存档"
+
+msgid "No existing Current will be replaced"
+msgstr "不会替换现有当前存档"
+
+msgid "The active save becomes a new Stash"
+msgstr "当前存档将保存为新的暂存项"
+
+msgid "Apply selected save"
+msgstr "应用所选存档"
+
+msgid "The selected saved copy remains unchanged"
+msgstr "所选保存副本保持不变"
+
+msgid "Verify and finish"
+msgstr "验证并完成"
+
+msgid "Any verification failure restores the original Current"
+msgstr "验证失败时会恢复原当前存档"
+
+msgid "Current filename"
+msgstr "当前存档文件名"
+
+msgid "Applying and verifying…"
+msgstr "正在应用并验证…"
+
+msgid "Activating and verifying…"
+msgstr "正在激活并验证…"
+
+msgid "Saving changes…"
+msgstr "正在保存更改…"
+
+msgid "Deleting saved copy…"
+msgstr "正在删除保存副本…"
+
+msgid "Permanently delete this saved copy? This cannot be undone. Current and all other saved copies stay unchanged."
+msgstr "要永久删除此保存副本吗？此操作无法撤销。当前存档和其他保存副本不会改变。"
+
+msgid "Delete this saved copy"
+msgstr "删除此保存副本"
+
+msgid "Verified"
+msgstr "已验证"
+
+msgid "Modified"
+msgstr "已修改"
+
+msgid "Checking active save…"
+msgstr "正在检查当前存档…"
+
+msgid "Active save verified"
+msgstr "当前存档已验证"
+
+msgid "Active save unavailable"
+msgstr "当前存档不可用"
+
+msgid "Edit name and description"
+msgstr "编辑名称和描述"
