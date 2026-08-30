@@ -96,5 +96,5 @@ up game profile for mutation and interruption testing.
 - [x] Recheck English and Simplified Chinese switching in the exact release
   executable without losing responsiveness or changing layout.
 - [x] Pass formatting, tests, strict Clippy, and the release build.
-- [ ] Inspect the Draft Release ZIP, checksum, executable version, and contents.
-- [ ] Publish `v0.1.1` only after explicit maintainer confirmation.
+- [x] Inspect the Draft Release ZIP, checksum, executable version, and contents.
+- [x] Publish `v0.1.1` only after explicit maintainer confirmation.
