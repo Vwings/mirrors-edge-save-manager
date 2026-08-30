@@ -1,6 +1,6 @@
 # Project Status and Handoff
 
-Last updated: 2026-08-29
+Last updated: 2026-08-30
 
 This is a temporary handoff document for development sessions. Update it when
 a milestone changes, a major decision is made, or the next task changes. Remove
@@ -36,8 +36,8 @@ Current or adding StoredSaves. Windows-version acceptance remains.
 
 The first real-game smoke test exposed usability gaps around transient feedback,
 collection-specific actions, duplicate prevention, capture metadata, and
-creation-time display. The corresponding product changes are implemented and
-await one focused debug acceptance pass before release automation resumes.
+creation-time display. The corresponding product changes passed focused manual
+acceptance and GitHub-hosted CI. Work now resumes on Draft Release automation.
 
 ## Completed
 
@@ -427,10 +427,10 @@ Complete these in order unless the design document is updated first:
   refresh-after-mutation behavior.
 - [x] Inspect the fixed window, list viewport, row actions, and Apply modal at
   simulated 100%, 125%, and 150% desktop scaling.
-- [ ] Verify that success feedback expires, Current capture confirms metadata,
+- [x] Verify that success feedback expires, Current capture confirms metadata,
   and StoredSave creation time remains visible with or without a description.
-- [ ] Verify Preset-only import, confirmed bulk Stash clearing, and duplicate
-  prevention limited to the destination classification.
+- [x] Verify Preset-only import, confirmed bulk Stash clearing, Preset duplicate
+  prevention, and cross-collection duplicate prevention for new Stashes.
 
 ## Release Resume Order
 

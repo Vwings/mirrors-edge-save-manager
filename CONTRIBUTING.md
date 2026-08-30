@@ -80,6 +80,13 @@ cargo build
 Run `target\debug\mirrors-edge-save-manager.exe` directly after resource or UI
 changes. Do not create alternate package directories or copied executables.
 
+## Releases
+
+The maintainer release workflow, tag timing, package contents, Draft Release
+inspection, and final publication command are documented in
+[`docs/releasing.md`](docs/releasing.md). The automated workflow never publishes
+a release without an explicit maintainer confirmation.
+
 ## Pull Requests
 
 Describe the user-visible or safety behavior changed, list verification

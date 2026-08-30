@@ -12,7 +12,8 @@ up game profile for mutation and interruption testing.
 - [x] `cargo clippy --all-targets -- -D warnings`
 - [x] `cargo build --release`
 - [x] Confirm `CI` passes on a GitHub-hosted Windows runner.
-- [ ] Measure release executable size and cold startup time.
+- [x] Measure the release executable size.
+- [ ] Measure cold startup time.
 
 ## Native Environment
 
@@ -51,20 +52,20 @@ up game profile for mutation and interruption testing.
 
 ## Final Usability Smoke
 
-- [ ] Confirm successful-operation feedback disappears after four seconds.
-- [ ] Confirm Import appears only for Presets and Clear Stash only for Stashes.
-- [ ] Confirm Clear Stash requires confirmation and preserves Current and all
+- [x] Confirm successful-operation feedback disappears after four seconds.
+- [x] Confirm Import appears only for Presets and Clear Stash only for Stashes.
+- [x] Confirm Clear Stash requires confirmation and preserves Current and all
   Presets.
-- [ ] Confirm manual Current capture allows name and description review before
+- [x] Confirm manual Current capture allows name and description review before
   writing.
-- [ ] Confirm every StoredSave row shows creation time to the second, with or
+- [x] Confirm every StoredSave row shows creation time to the second, with or
   without a description.
-- [ ] Confirm duplicate Presets are blocked and no Stash is created when either
+- [x] Confirm duplicate Presets are blocked and no Stash is created when either
   a verified Preset or Stash already preserves Current.
-- [ ] Confirm Current-captured rows retain their Apply source alias and
+- [x] Confirm Current-captured rows retain their Apply source alias and
   changed-since-Apply state after restart and after the source is renamed or
   deleted.
-- [ ] Confirm duplicate Current capture stops before metadata entry, saved copies
+- [x] Confirm duplicate Current capture stops before metadata entry, saved copies
   matching Current cannot open Apply, and last-Apply change status survives a
   restart.
 

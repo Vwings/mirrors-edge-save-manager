@@ -1,0 +1,152 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without the v prefix, for example 0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Build draft release
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select stable Rust
+        shell: pwsh
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt clippy
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Validate release request
+        id: release
+        shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          SOURCE_REF: ${{ github.ref }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:SOURCE_REF -ne "refs/heads/main") {
+              throw "Prepare Release must run from the main branch."
+          }
+
+          $version = $env:INPUT_VERSION.Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+              throw "Version must be a semantic version without the v prefix."
+          }
+
+          $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          $package = @($metadata.packages | Where-Object name -eq "mirrors-edge-save-manager")
+          if ($package.Count -ne 1) {
+              throw "Expected exactly one mirrors-edge-save-manager package in Cargo metadata."
+          }
+          if ($package[0].version -ne $version) {
+              throw "Cargo.toml version '$($package[0].version)' does not match requested version '$version'."
+          }
+
+          $tag = "v$version"
+          $notes = "docs/release-notes/$tag.md"
+          if (-not (Test-Path -LiteralPath $notes -PathType Leaf)) {
+              throw "Missing release notes: $notes"
+          }
+          if (git tag --list $tag) {
+              throw "Tag $tag already exists locally or remotely."
+          }
+
+          $asset = "mirrors-edge-save-manager.exe"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "notes=$notes" >> $env:GITHUB_OUTPUT
+          "asset=$asset" >> $env:GITHUB_OUTPUT
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Build release executable
+        run: cargo build --locked --release
+
+      - name: Inspect executable metadata
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $executable = Get-Item -LiteralPath "target/release/mirrors-edge-save-manager.exe"
+          if ($executable.VersionInfo.FileVersion -ne $env:VERSION) {
+              throw "Executable file version '$($executable.VersionInfo.FileVersion)' does not match '$env:VERSION'."
+          }
+          if ($executable.VersionInfo.ProductVersion -ne $env:VERSION) {
+              throw "Executable product version '$($executable.VersionInfo.ProductVersion)' does not match '$env:VERSION'."
+          }
+          "Executable size: $($executable.Length) bytes" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Prepare release assets
+        shell: pwsh
+        env:
+          ASSET: ${{ steps.release.outputs.asset }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $dist = New-Item -ItemType Directory -Path "dist" -Force
+          $assetPath = Join-Path $dist $env:ASSET
+          Copy-Item -LiteralPath "target/release/mirrors-edge-save-manager.exe" -Destination $assetPath
+          if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
+              throw "Release executable is missing."
+          }
+          $hash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $env:ASSET" | Set-Content -LiteralPath (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
+          "Executable SHA-256: $hash" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Create annotated release tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate $env:RELEASE_TAG $env:GITHUB_SHA --message "Release $env:RELEASE_TAG"
+          git push origin "refs/tags/$env:RELEASE_TAG"
+
+      - name: Create draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_NOTES: ${{ steps.release.outputs.notes }}
+          ASSET: ${{ steps.release.outputs.asset }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          gh release create $env:RELEASE_TAG `
+              "dist/$env:ASSET" `
+              "dist/SHA256SUMS.txt" `
+              --verify-tag `
+              --draft `
+              --title "Mirror's Edge Save Manager $env:RELEASE_TAG" `
+              --notes-file $env:RELEASE_NOTES
+          "Draft release $env:RELEASE_TAG created for commit $env:GITHUB_SHA." >> $env:GITHUB_STEP_SUMMARY
