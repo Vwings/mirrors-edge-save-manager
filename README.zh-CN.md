@@ -6,6 +6,8 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
+**[下载最新版本](https://github.com/Vwings/mirrors-edge-save-manager/releases/latest)** · [更新日志](CHANGELOG.md)
+
 ![Mirror's Edge 存档管理器](resources/header-logo.png)
 
 一个非官方的 Windows 工具，帮你整理并安全切换《Mirror's Edge》（2008）PC 版存档。
@@ -66,7 +68,9 @@ Windows 的 **Documents** 文件夹，并使用游戏标准的
 
 ## 安装与启动
 
-从仓库的 [Releases](https://github.com/Vwings/mirrors-edge-save-manager/releases) 页面下载 Windows 可执行文件，放到方便的位置后直接运行即可，无需安装程序。
+从仓库的 [Releases](https://github.com/Vwings/mirrors-edge-save-manager/releases/latest)
+页面下载 `mirrors-edge-save-manager-windows-x64.zip`，解压后把
+`mirrors-edge-save-manager.exe` 放到方便的位置并运行即可，无需安装程序。
 
 用户数据会独立保存于：
 

@@ -6,6 +6,8 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
+**[Download the latest release](https://github.com/Vwings/mirrors-edge-save-manager/releases/latest)** · [Changelog](CHANGELOG.md)
+
 ![Mirror's Edge Save Manager](resources/header-logo.png)
 
 An unofficial Windows utility for organizing and safely switching Mirror's Edge
@@ -84,9 +86,10 @@ standard `EA Games\\Mirror's Edge\\TdGame\\Savefiles\\` location.
 
 ## Install and launch
 
-Download the Windows executable from the repository's [Releases](https://github.com/Vwings/mirrors-edge-save-manager/releases) page and run it.
-There is no installer. Download the standalone executable, place it where you
-like, and run it.
+Download `mirrors-edge-save-manager-windows-x64.zip` from the repository's
+[Releases](https://github.com/Vwings/mirrors-edge-save-manager/releases/latest)
+page. Extract the archive, place `mirrors-edge-save-manager.exe` wherever you
+like, and run it. There is no installer.
 
 Keep the executable wherever convenient. User data is stored separately under:
 

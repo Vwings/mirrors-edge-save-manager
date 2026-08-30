@@ -443,7 +443,7 @@ After the usability fixes pass debug verification, preserve this sequence:
    Release for `0.1.0` from `main`.
 5. Let that workflow create the annotated `v0.1.0` tag and Draft Release at the
    tested commit.
-6. Download and inspect the release executable, then publish the draft only
+6. Download and inspect the release package, then publish the draft only
    after explicit maintainer confirmation.
 
 ## Separate Research Track

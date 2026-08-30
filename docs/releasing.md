@@ -33,8 +33,8 @@ cargo clippy --locked --all-targets -- -D warnings
 
 1. Freeze the release scope and complete the relevant items in
    `docs/release-checklist.md`.
-2. Update `Cargo.toml`, `Cargo.lock`, both READMEs, and the release notes at
-   `docs/release-notes/v<version>.md` as needed.
+2. Update `Cargo.toml`, `Cargo.lock`, both READMEs, `CHANGELOG.md`, and the
+   release notes at `docs/release-notes/v<version>.md` as needed.
 3. Commit and push every intended release change to `main`.
 4. Require a clean worktree and a passing `CI` workflow for that exact commit.
 5. Confirm that the requested tag and GitHub Release do not already exist.
@@ -58,12 +58,13 @@ captured `GITHUB_SHA`. It then creates a Draft Release with `--verify-tag` and
 uploads:
 
 ```text
-mirrors-edge-save-manager.exe
+mirrors-edge-save-manager-windows-x64.zip
 SHA256SUMS.txt
 ```
 
-The executable is uploaded directly because the application is a standalone
-single-file distribution. If any step before tag creation fails, no tag or
+The archive contains only `mirrors-edge-save-manager.exe`; the application
+remains a standalone single-file distribution after extraction. The checksum
+covers the downloaded ZIP. If any step before tag creation fails, no tag or
 Release is created.
 
 ## Inspect the Draft
@@ -74,10 +75,11 @@ Download the actual Draft Release assets into a new directory:
 gh release download v0.1.0 --dir release-check
 ```
 
-Compare the executable hash with `SHA256SUMS.txt`, then run the downloaded
-executable. Confirm the icon and Windows version metadata, both interface
-languages, Current discovery, and the agreed final smoke test against a
-separately backed-up game profile.
+Compare the archive hash with `SHA256SUMS.txt`, then extract it and confirm it
+contains only `mirrors-edge-save-manager.exe`. Run that executable and confirm
+the icon and Windows version metadata, both interface languages, Current
+discovery, and the agreed final smoke test against a separately backed-up game
+profile.
 
 If the draft is rejected, do not publish it. Delete the Draft Release and its
 remote tag, fix the problem on `main`, and run `Prepare Release` again. Never
@@ -91,6 +93,6 @@ Publish only the inspected draft:
 gh release edit v0.1.0 --draft=false
 ```
 
-Then verify that the public Release page, executable download, and checksum
-download work without maintainer credentials. Record the final verification and
-release state in `docs/status.md` and `docs/release-checklist.md`.
+Then verify that the public Release page, archive download, and checksum download
+work without maintainer credentials. Record the final verification and release
+state in `docs/status.md` and `docs/release-checklist.md`.

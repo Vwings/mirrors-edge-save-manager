@@ -73,7 +73,7 @@ jobs:
               throw "Tag $tag already exists locally or remotely."
           }
 
-          $asset = "mirrors-edge-save-manager.exe"
+          $asset = "mirrors-edge-save-manager-windows-x64.zip"
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "notes=$notes" >> $env:GITHUB_OUTPUT
@@ -114,13 +114,38 @@ jobs:
           $ErrorActionPreference = "Stop"
           $dist = New-Item -ItemType Directory -Path "dist" -Force
           $assetPath = Join-Path $dist $env:ASSET
-          Copy-Item -LiteralPath "target/release/mirrors-edge-save-manager.exe" -Destination $assetPath
+          $executablePath = "target/release/mirrors-edge-save-manager.exe"
+          Compress-Archive `
+              -LiteralPath $executablePath `
+              -DestinationPath $assetPath `
+              -CompressionLevel Optimal
           if (-not (Test-Path -LiteralPath $assetPath -PathType Leaf)) {
-              throw "Release executable is missing."
+              throw "Release archive is missing."
           }
+
+          $archive = [IO.Compression.ZipFile]::OpenRead($assetPath)
+          try {
+              $entries = @($archive.Entries)
+              if ($entries.Count -ne 1) {
+                  throw "Release archive must contain exactly one file."
+              }
+              if ($entries[0].FullName -ne "mirrors-edge-save-manager.exe") {
+                  throw "Unexpected release archive entry '$($entries[0].FullName)'."
+              }
+              $executable = Get-Item -LiteralPath $executablePath
+              if ($entries[0].Length -ne $executable.Length) {
+                  throw "Archived executable size does not match the build output."
+              }
+          }
+          finally {
+              $archive.Dispose()
+          }
+
+          $archiveFile = Get-Item -LiteralPath $assetPath
           $hash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $env:ASSET" | Set-Content -LiteralPath (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
-          "Executable SHA-256: $hash" >> $env:GITHUB_STEP_SUMMARY
+          "Release archive size: $($archiveFile.Length) bytes" >> $env:GITHUB_STEP_SUMMARY
+          "Release archive SHA-256: $hash" >> $env:GITHUB_STEP_SUMMARY
 
       - name: Create annotated release tag
         shell: pwsh
