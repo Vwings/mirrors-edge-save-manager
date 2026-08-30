@@ -31,13 +31,19 @@ cargo clippy --locked --all-targets -- -D warnings
 
 ## Before Preparing a Release
 
-1. Freeze the release scope and complete the relevant items in
+1. Synchronize remote branches and workflow-created release tags:
+
+   ```powershell
+   git fetch origin --prune --tags
+   ```
+
+2. Freeze the release scope and complete the relevant items in
    `docs/release-checklist.md`.
-2. Update `Cargo.toml`, `Cargo.lock`, both READMEs, `CHANGELOG.md`, and the
+3. Update `Cargo.toml`, `Cargo.lock`, both READMEs, `CHANGELOG.md`, and the
    release notes at `docs/release-notes/v<version>.md` as needed.
-3. Commit and push every intended release change to `main`.
-4. Require a clean worktree and a passing `CI` workflow for that exact commit.
-5. Confirm that the requested tag and GitHub Release do not already exist.
+4. Commit and push every intended release change to `main`.
+5. Require a clean worktree and a passing `CI` workflow for that exact commit.
+6. Confirm that the requested tag and GitHub Release do not already exist.
 
 ## Prepare the Draft
 

@@ -165,6 +165,12 @@ when it cannot prove which bytes are safe.
 **The language did not change** — Select `EN` or `中文` in the top bar, then
 wait for the interface to refresh. The explicit choice is saved automatically.
 
+**Some Chinese characters are missing** — On an English-language Windows
+installation, install Simplified Chinese language or supplemental font support,
+then restart the manager. The Windows display language can remain English. The
+manager prefers Microsoft YaHei UI for its Chinese interface and otherwise
+uses the system font fallback selected by Slint.
+
 ## Update and removal
 
 The application is a standalone executable. To update it, close the game and

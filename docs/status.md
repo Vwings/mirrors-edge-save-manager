@@ -43,6 +43,13 @@ After downloaded-package acceptance and explicit maintainer confirmation,
 `v0.1.0` was published on 2026-08-30. The public Release page, latest-release
 redirect, ZIP, and checksum all passed unauthenticated HTTP checks.
 
+After publication, an English-language Windows user reported that Slint's
+system fallback omitted some Simplified Chinese glyphs. The Chinese interface
+now explicitly prefers Microsoft YaHei UI while the English interface retains
+Slint's original default font selection. The affected user confirmed that the
+missing glyphs render correctly with this change. This focused fix is planned
+for `v0.1.1`.
+
 ## Completed
 
 - Product, domain, safety, storage, and UI direction documented in
@@ -341,6 +348,12 @@ focused debug acceptance, and GitHub-hosted CI. The published workflow rebuilt
 the executable with matching `0.1.0` file and product versions, then produced a
 5,256,851-byte ZIP containing only the 9,638,400-byte executable. Downloaded ZIP
 acceptance passed; cold-start measurement remains pending.
+
+The `0.1.1` Simplified Chinese font fix passed `cargo fmt --check`, all 89
+automated tests (85 library and 4 binary), strict Clippy, and a release build.
+The resulting executable reports matching `0.1.1` file and product versions.
+Manual acceptance of that release executable confirmed that English and
+Simplified Chinese switching remains responsive and preserves the layout.
 
 ## Current Worktree Note
 

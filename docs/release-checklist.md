@@ -87,3 +87,14 @@ up game profile for mutation and interruption testing.
 - [x] Publish `v0.1.0` only after explicit maintainer confirmation.
 - [x] Verify the public Release page, latest-release redirect, ZIP, and checksum
   are accessible without maintainer credentials.
+
+## v0.1.1 Simplified Chinese Font Fix
+
+- [x] Confirm the reported missing Simplified Chinese glyphs render on the
+  affected English-language Windows system.
+- [x] Confirm the English interface retains its original font appearance.
+- [x] Recheck English and Simplified Chinese switching in the exact release
+  executable without losing responsiveness or changing layout.
+- [x] Pass formatting, tests, strict Clippy, and the release build.
+- [ ] Inspect the Draft Release ZIP, checksum, executable version, and contents.
+- [ ] Publish `v0.1.1` only after explicit maintainer confirmation.

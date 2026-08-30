@@ -435,6 +435,7 @@ export component AppWindow inherits Window {
     max-width: 680px;
     max-height: 720px;
     background: #ecece8;
+    default-font-family: root.language == "zh-CN" ? "Microsoft YaHei UI" : "";
 
     in-out property <bool> loading: true;
     in-out property <int> game-state: 0;

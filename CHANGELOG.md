@@ -8,6 +8,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-30
+
+### Fixed
+
+- Prefer Microsoft YaHei UI for the Simplified Chinese interface so complete
+  Chinese text renders on English-language Windows installations while the
+  English interface retains Slint's original default font selection.
+
 ## [0.1.0] - 2026-08-30
 
 ### Added
@@ -31,5 +39,6 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Current fingerprints and replacement artifacts are rechecked immediately
   before committing a replacement.
 
-[Unreleased]: https://github.com/Vwings/mirrors-edge-save-manager/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Vwings/mirrors-edge-save-manager/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Vwings/mirrors-edge-save-manager/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Vwings/mirrors-edge-save-manager/releases/tag/v0.1.0

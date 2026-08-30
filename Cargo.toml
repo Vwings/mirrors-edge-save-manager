@@ -1,6 +1,6 @@
 [package]
 name = "mirrors-edge-save-manager"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "An unofficial save manager for Mirror's Edge"
 license = "GPL-3.0-only"
