@@ -2,6 +2,8 @@ use std::error::Error;
 use std::fmt;
 use std::path::Path;
 
+use unicode_segmentation::UnicodeSegmentation;
+
 pub const MAX_ALIAS_CHARACTERS: usize = 80;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +31,7 @@ pub fn validate_alias(alias: String) -> Result<String, AliasError> {
     if alias.is_empty() {
         return Err(AliasError::Empty);
     }
-    let characters = alias.chars().count();
+    let characters = alias.graphemes(true).count();
     if characters > MAX_ALIAS_CHARACTERS {
         return Err(AliasError::TooLong { characters });
     }
@@ -99,6 +101,18 @@ mod tests {
         assert!(matches!(
             validate_alias("界".repeat(MAX_ALIAS_CHARACTERS + 1)),
             Err(AliasError::TooLong { .. })
+        ));
+    }
+
+    #[test]
+    fn counts_user_perceived_characters_like_the_ui() {
+        let emoji = "👩‍💻".repeat(MAX_ALIAS_CHARACTERS);
+        assert!(validate_alias(emoji).is_ok());
+
+        let combining_character = "e\u{301}".repeat(MAX_ALIAS_CHARACTERS + 1);
+        assert!(matches!(
+            validate_alias(combining_character),
+            Err(AliasError::TooLong { characters }) if characters == MAX_ALIAS_CHARACTERS + 1
         ));
     }
 

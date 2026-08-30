@@ -19,7 +19,10 @@ use crate::save_file::{
     SAVE_FILE_SIZE, SaveFileError, SaveFingerprint, SaveHash, fingerprint_reader,
     validate_and_fingerprint,
 };
-use crate::stored_save::{StoredSaveKind, StoredSaveMetadata, StoredSaveOrigin};
+use crate::stored_save::{
+    AppliedSourceSnapshot, DescriptionError, StoredSaveKind, StoredSaveMetadata, StoredSaveOrigin,
+    validate_description,
+};
 use crate::windows_file;
 
 pub const APPLICATION_DIRECTORY_NAME: &str = "Mirror's Edge Save Manager";
@@ -35,11 +38,20 @@ const SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub struct CaptureResult {
     pub metadata: StoredSaveMetadata,
     pub duplicate_ids: Vec<String>,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromoteResult {
+    pub metadata: StoredSaveMetadata,
+    pub duplicate_ids: Vec<String>,
+    pub promoted: bool,
 }
 
 #[derive(Debug)]
 pub enum StorageError {
     Alias(AliasError),
+    Description(DescriptionError),
     Source(SaveFileError),
     Io {
         operation: &'static str,
@@ -69,6 +81,7 @@ impl fmt::Display for StorageError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Alias(source) => write!(formatter, "invalid alias: {source}"),
+            Self::Description(source) => write!(formatter, "invalid description: {source}"),
             Self::Source(source) => write!(formatter, "invalid source save: {source}"),
             Self::Io {
                 operation,
@@ -122,6 +135,7 @@ impl Error for StorageError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Alias(source) => Some(source),
+            Self::Description(source) => Some(source),
             Self::Source(source) => Some(source),
             Self::Io { source, .. } => Some(source),
             Self::Json { source, .. } => Some(source),
@@ -192,6 +206,43 @@ impl StoredSaveRepository {
         self.write_settings(&settings)
     }
 
+    pub fn last_applied_source(&self) -> Result<Option<AppliedSourceSnapshot>, StorageError> {
+        let path = self.root.join(SETTINGS_FILE_NAME);
+        self.read_settings()?
+            .last_applied
+            .map(|source| source.into_source(&path))
+            .transpose()
+    }
+
+    pub fn record_last_applied(
+        &self,
+        source: &StoredSaveMetadata,
+        fingerprint: SaveFingerprint,
+    ) -> Result<(), StorageError> {
+        if source.fingerprint != fingerprint {
+            return Err(StorageError::PayloadMismatch {
+                path: self.root.join(SETTINGS_FILE_NAME),
+                expected: source.fingerprint,
+                actual: fingerprint,
+            });
+        }
+        let mut settings = self.read_settings()?;
+        settings.last_applied = Some(LastAppliedDocument::from_source(source)?);
+        self.write_settings(&settings)
+    }
+
+    pub fn find_verified_match(
+        &self,
+        source: &Path,
+        kind: StoredSaveKind,
+    ) -> Result<Option<StoredSaveMetadata>, StorageError> {
+        let fingerprint = validate_and_fingerprint(source)?;
+        Ok(self
+            .verified_capture_matches(kind, fingerprint)?
+            .into_iter()
+            .next())
+    }
+
     pub fn capture(
         &self,
         source: &Path,
@@ -201,6 +252,7 @@ impl StoredSaveRepository {
         origin: StoredSaveOrigin,
     ) -> Result<CaptureResult, StorageError> {
         let alias = validate_alias(alias).map_err(StorageError::Alias)?;
+        let description = validate_description(description).map_err(StorageError::Description)?;
         let fingerprint = validate_and_fingerprint(source)?;
         let source_metadata = fs::metadata(source).map_err(|source_error| StorageError::Io {
             operation: "inspect source",
@@ -212,12 +264,14 @@ impl StoredSaveRepository {
             .ok()
             .map(truncate_to_millis)
             .transpose()?;
-        let duplicate_ids = self
-            .list()?
-            .into_iter()
-            .filter(|existing| existing.fingerprint == fingerprint)
-            .map(|existing| existing.id)
-            .collect();
+        let duplicates = self.verified_capture_matches(kind, fingerprint)?;
+        if let Some(metadata) = duplicates.first().cloned() {
+            return Ok(CaptureResult {
+                metadata,
+                duplicate_ids: duplicates.into_iter().map(|save| save.id).collect(),
+                created: false,
+            });
+        }
         let id = Uuid::new_v4().to_string();
         let saves_directory = self.stored_saves_directory();
         create_directory_all(&saves_directory)?;
@@ -231,6 +285,11 @@ impl StoredSaveRepository {
             compress_file(source, &payload_path)?;
             verify_payload(&payload_path, fingerprint)?;
 
+            let capture_source = if origin == StoredSaveOrigin::Current {
+                self.last_applied_source()?
+            } else {
+                None
+            };
             let metadata = StoredSaveMetadata {
                 id,
                 kind,
@@ -244,6 +303,7 @@ impl StoredSaveRepository {
                     .unwrap_or_default(),
                 source_modified_at,
                 fingerprint,
+                capture_source,
             };
             write_metadata(&staging_directory.join(METADATA_FILE_NAME), &metadata)?;
             Ok(metadata)
@@ -268,7 +328,8 @@ impl StoredSaveRepository {
 
         Ok(CaptureResult {
             metadata,
-            duplicate_ids,
+            duplicate_ids: Vec::new(),
+            created: true,
         })
     }
 
@@ -340,13 +401,27 @@ impl StoredSaveRepository {
         Ok(metadata.fingerprint)
     }
 
-    pub fn promote_to_preset(&self, id: &str) -> Result<StoredSaveMetadata, StorageError> {
-        self.update_metadata(id, |metadata| {
-            if metadata.kind != StoredSaveKind::Stash {
-                return Err(StorageError::NotAStash(metadata.id.clone()));
-            }
+    pub fn promote_to_preset(&self, id: &str) -> Result<PromoteResult, StorageError> {
+        let (stash, _) = self.load_entry(id)?;
+        if stash.kind != StoredSaveKind::Stash {
+            return Err(StorageError::NotAStash(stash.id));
+        }
+        let duplicates = self.verified_matches(StoredSaveKind::Preset, stash.fingerprint)?;
+        if let Some(metadata) = duplicates.first().cloned() {
+            return Ok(PromoteResult {
+                metadata,
+                duplicate_ids: duplicates.into_iter().map(|save| save.id).collect(),
+                promoted: false,
+            });
+        }
+        let metadata = self.update_metadata(id, |metadata| {
             metadata.promote_to_preset();
             Ok(())
+        })?;
+        Ok(PromoteResult {
+            metadata,
+            duplicate_ids: Vec::new(),
+            promoted: true,
         })
     }
 
@@ -358,7 +433,8 @@ impl StoredSaveRepository {
     ) -> Result<StoredSaveMetadata, StorageError> {
         self.update_metadata(id, |metadata| {
             metadata.alias = validate_alias(alias).map_err(StorageError::Alias)?;
-            metadata.description = description;
+            metadata.description =
+                validate_description(description).map_err(StorageError::Description)?;
             Ok(())
         })
     }
@@ -380,6 +456,19 @@ impl StoredSaveRepository {
         Ok(())
     }
 
+    pub fn delete_all_stashes(&self) -> Result<usize, StorageError> {
+        let stash_ids = self
+            .list()?
+            .into_iter()
+            .filter(|save| save.kind == StoredSaveKind::Stash)
+            .map(|save| save.id)
+            .collect::<Vec<_>>();
+        for id in &stash_ids {
+            self.delete(id)?;
+        }
+        Ok(stash_ids.len())
+    }
+
     pub(crate) fn materialize_payload(
         &self,
         id: &str,
@@ -396,6 +485,35 @@ impl StoredSaveRepository {
         let (metadata, payload_path) = self.load_entry(id)?;
         decompress_payload(&payload_path, destination, metadata.fingerprint)?;
         Ok(metadata.fingerprint)
+    }
+
+    fn verified_matches(
+        &self,
+        kind: StoredSaveKind,
+        fingerprint: SaveFingerprint,
+    ) -> Result<Vec<StoredSaveMetadata>, StorageError> {
+        Ok(self
+            .list()?
+            .into_iter()
+            .filter(|existing| existing.kind == kind && existing.fingerprint == fingerprint)
+            .filter(|existing| self.verify(&existing.id).is_ok())
+            .collect())
+    }
+
+    fn verified_capture_matches(
+        &self,
+        kind: StoredSaveKind,
+        fingerprint: SaveFingerprint,
+    ) -> Result<Vec<StoredSaveMetadata>, StorageError> {
+        Ok(self
+            .list()?
+            .into_iter()
+            .filter(|existing| {
+                existing.fingerprint == fingerprint
+                    && (existing.kind == kind || kind == StoredSaveKind::Stash)
+            })
+            .filter(|existing| self.verify(&existing.id).is_ok())
+            .collect())
     }
 
     fn load_entry(&self, id: &str) -> Result<(StoredSaveMetadata, PathBuf), StorageError> {
@@ -485,13 +603,13 @@ impl StoredSaveRepository {
         })? {
             return Ok(SettingsDocument::default());
         }
-        let file = File::open(&path).map_err(|source| StorageError::Io {
-            operation: "open settings",
+        let bytes = fs::read(&path).map_err(|source| StorageError::Io {
+            operation: "read settings",
             path: path.clone(),
             source,
         })?;
         let settings: SettingsDocument =
-            serde_json::from_reader(BufReader::new(file)).map_err(|source| StorageError::Json {
+            serde_json::from_slice(&bytes).map_err(|source| StorageError::Json {
                 path: path.clone(),
                 source,
             })?;
@@ -510,6 +628,9 @@ impl StoredSaveRepository {
                 path,
                 reason: format!("hidden built-in ID is not a UUID: {id}"),
             });
+        }
+        if let Some(source) = settings.last_applied.clone() {
+            source.into_source(&path)?;
         }
         Ok(settings)
     }
@@ -560,6 +681,8 @@ struct SettingsDocument {
     hidden_built_in_ids: BTreeSet<String>,
     #[serde(default)]
     language: Option<String>,
+    #[serde(default)]
+    last_applied: Option<LastAppliedDocument>,
 }
 
 impl Default for SettingsDocument {
@@ -568,7 +691,78 @@ impl Default for SettingsDocument {
             schema_version: SETTINGS_SCHEMA_VERSION,
             hidden_built_in_ids: BTreeSet::new(),
             language: None,
+            last_applied: None,
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LastAppliedDocument {
+    stored_save_id: String,
+    kind: StoredSaveKind,
+    origin: StoredSaveOrigin,
+    alias: String,
+    applied_at_unix_millis: u64,
+    original_size: u64,
+    sha256: String,
+}
+
+impl LastAppliedDocument {
+    fn from_source(source: &StoredSaveMetadata) -> Result<Self, StorageError> {
+        Self::from_snapshot(&AppliedSourceSnapshot {
+            stored_save_id: source.id.clone(),
+            kind: source.kind,
+            origin: source.origin,
+            alias: source.alias.clone(),
+            applied_at: SystemTime::now(),
+            fingerprint: source.fingerprint,
+        })
+    }
+
+    fn from_snapshot(source: &AppliedSourceSnapshot) -> Result<Self, StorageError> {
+        Ok(Self {
+            stored_save_id: source.stored_save_id.clone(),
+            kind: source.kind,
+            origin: source.origin,
+            alias: source.alias.clone(),
+            applied_at_unix_millis: time_to_millis(source.applied_at)?,
+            original_size: source.fingerprint.size,
+            sha256: source.fingerprint.sha256.to_string(),
+        })
+    }
+
+    fn into_source(self, path: &Path) -> Result<AppliedSourceSnapshot, StorageError> {
+        if Uuid::parse_str(&self.stored_save_id).is_err() {
+            return Err(StorageError::InvalidMetadata {
+                path: path.to_path_buf(),
+                reason: "last-applied StoredSave ID is not a UUID".into(),
+            });
+        }
+        let alias = validate_alias(self.alias).map_err(StorageError::Alias)?;
+        if self.original_size != SAVE_FILE_SIZE {
+            return Err(StorageError::InvalidMetadata {
+                path: path.to_path_buf(),
+                reason: format!("unexpected last-applied size {}", self.original_size),
+            });
+        }
+        let sha256 =
+            self.sha256
+                .parse::<SaveHash>()
+                .map_err(|source| StorageError::InvalidMetadata {
+                    path: path.to_path_buf(),
+                    reason: source.to_string(),
+                })?;
+        Ok(AppliedSourceSnapshot {
+            stored_save_id: self.stored_save_id,
+            kind: self.kind,
+            origin: self.origin,
+            alias,
+            applied_at: millis_to_time(self.applied_at_unix_millis, path)?,
+            fingerprint: SaveFingerprint {
+                size: self.original_size,
+                sha256,
+            },
+        })
     }
 }
 
@@ -587,16 +781,19 @@ fn built_in_metadata(resource: &BuiltInResource) -> Result<StoredSaveMetadata, S
         });
     }
     let alias = validate_alias(resource.alias.into()).map_err(StorageError::Alias)?;
+    let description = validate_description(resource.description.map(Into::into))
+        .map_err(StorageError::Description)?;
     Ok(StoredSaveMetadata {
         id: resource.id.into(),
         kind: StoredSaveKind::Preset,
         alias,
-        description: resource.description.map(Into::into),
+        description,
         origin: StoredSaveOrigin::BuiltIn,
         created_at: UNIX_EPOCH + Duration::from_millis(resource.created_at_millis),
         source_filename: resource.source_filename.into(),
         source_modified_at: None,
         fingerprint: resource.fingerprint,
+        capture_source: None,
     })
 }
 
@@ -618,6 +815,8 @@ struct MetadataDocument {
     original_size: u64,
     sha256: String,
     compression: String,
+    #[serde(default)]
+    capture_source: Option<LastAppliedDocument>,
 }
 
 impl MetadataDocument {
@@ -638,6 +837,11 @@ impl MetadataDocument {
             original_size: metadata.fingerprint.size,
             sha256: metadata.fingerprint.sha256.to_string(),
             compression: "gzip".into(),
+            capture_source: metadata
+                .capture_source
+                .as_ref()
+                .map(LastAppliedDocument::from_snapshot)
+                .transpose()?,
         })
     }
 
@@ -679,12 +883,18 @@ impl MetadataDocument {
             .source_modified_at_unix_millis
             .map(|millis| millis_to_time(millis, path))
             .transpose()?;
+        let description = validate_description(self.description).map_err(|source| {
+            StorageError::InvalidMetadata {
+                path: path.to_path_buf(),
+                reason: source.to_string(),
+            }
+        })?;
 
         Ok(StoredSaveMetadata {
             id: self.id,
             kind: self.kind,
             alias: self.alias,
-            description: self.description,
+            description,
             origin: self.origin,
             created_at,
             source_filename: self.source_filename,
@@ -693,6 +903,10 @@ impl MetadataDocument {
                 size: self.original_size,
                 sha256,
             },
+            capture_source: self
+                .capture_source
+                .map(|source| source.into_source(path))
+                .transpose()?,
         })
     }
 }
@@ -951,11 +1165,15 @@ mod tests {
     use super::*;
 
     fn create_valid_save(directory: &Path, name: &str) -> PathBuf {
+        create_valid_save_with_marker(directory, name, 1)
+    }
+
+    fn create_valid_save_with_marker(directory: &Path, name: &str, marker: u8) -> PathBuf {
         let path = directory.join(name);
         let mut file = File::create(&path).unwrap();
         file.set_len(SAVE_FILE_SIZE).unwrap();
         file.seek(SeekFrom::Start(SAVE_FILE_SIZE - 1)).unwrap();
-        file.write_all(&[1]).unwrap();
+        file.write_all(&[marker]).unwrap();
         file.flush().unwrap();
         path
     }
@@ -977,6 +1195,7 @@ mod tests {
             .unwrap();
 
         assert!(captured.duplicate_ids.is_empty());
+        assert!(captured.created);
         assert_eq!("Vwings.dat", captured.metadata.source_filename);
         assert_eq!(
             captured.metadata.fingerprint,
@@ -995,7 +1214,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_duplicate_content_but_keeps_both_entries() {
+    fn reuses_verified_duplicate_content_in_the_same_classification() {
         let directory = TempDir::new().unwrap();
         let source = create_valid_save(directory.path(), "Vwings.dat");
         let repository = StoredSaveRepository::new(directory.path().join("app-data"));
@@ -1019,7 +1238,106 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(vec![first.metadata.id], second.duplicate_ids);
+        assert_eq!(vec![first.metadata.id.clone()], second.duplicate_ids);
+        assert!(!second.created);
+        assert_eq!(first.metadata, second.metadata);
+        assert_eq!(1, repository.list().unwrap().len());
+    }
+
+    #[test]
+    fn duplicate_prevention_is_limited_to_the_same_classification() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        repository
+            .capture(
+                &source,
+                StoredSaveKind::Stash,
+                "History".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+
+        let preset = repository
+            .capture(
+                &source,
+                StoredSaveKind::Preset,
+                "Practice".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+
+        assert!(preset.duplicate_ids.is_empty());
+        assert!(preset.created);
+        assert_eq!(2, repository.list().unwrap().len());
+    }
+
+    #[test]
+    fn does_not_create_a_stash_when_an_identical_preset_exists() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let preset = repository
+            .capture(
+                &source,
+                StoredSaveKind::Preset,
+                "Practice".into(),
+                None,
+                StoredSaveOrigin::Imported,
+            )
+            .unwrap();
+
+        let stash = repository
+            .capture(
+                &source,
+                StoredSaveKind::Stash,
+                "History".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+
+        assert!(!stash.created);
+        assert_eq!(vec![preset.metadata.id.clone()], stash.duplicate_ids);
+        assert_eq!(preset.metadata, stash.metadata);
+        assert_eq!(1, repository.list().unwrap().len());
+    }
+
+    #[test]
+    fn replaces_an_unusable_duplicate_with_a_verified_capture() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let first = repository
+            .capture(
+                &source,
+                StoredSaveKind::Stash,
+                "First".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+        let payload = repository
+            .stored_saves_directory()
+            .join(&first.metadata.id)
+            .join(PAYLOAD_FILE_NAME);
+        fs::write(payload, b"damaged").unwrap();
+
+        let second = repository
+            .capture(
+                &source,
+                StoredSaveKind::Stash,
+                "Second".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+
+        assert!(second.created);
+        assert!(second.duplicate_ids.is_empty());
+        assert_ne!(first.metadata.id, second.metadata.id);
         assert_eq!(2, repository.list().unwrap().len());
     }
 
@@ -1101,6 +1419,108 @@ mod tests {
     }
 
     #[test]
+    fn reads_existing_version_one_settings_without_last_applied_data() {
+        let directory = TempDir::new().unwrap();
+        let root = directory.path().join("app-data");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join(SETTINGS_FILE_NAME),
+            br#"{
+  "schema_version": 1,
+  "hidden_built_in_ids": [],
+  "language": "zh-CN"
+}
+"#,
+        )
+        .unwrap();
+        let repository = StoredSaveRepository::new(root.clone());
+
+        assert_eq!(
+            Some("zh-CN".into()),
+            repository.preferred_language().unwrap()
+        );
+        assert_eq!(None, repository.last_applied_source().unwrap());
+        repository
+            .set_preferred_language(Some("en".into()))
+            .unwrap();
+
+        let settings: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.join(SETTINGS_FILE_NAME)).unwrap()).unwrap();
+        assert_eq!(1, settings["schema_version"]);
+        assert_eq!("en", settings["language"]);
+    }
+
+    #[test]
+    fn persists_the_last_applied_source_and_fingerprint() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let captured = repository
+            .capture(
+                &source,
+                StoredSaveKind::Preset,
+                "Practice".into(),
+                None,
+                StoredSaveOrigin::Imported,
+            )
+            .unwrap();
+
+        repository
+            .record_last_applied(&captured.metadata, captured.metadata.fingerprint)
+            .unwrap();
+        let recorded = repository.last_applied_source().unwrap().unwrap();
+
+        assert_eq!(captured.metadata.id, recorded.stored_save_id);
+        assert_eq!(StoredSaveKind::Preset, recorded.kind);
+        assert_eq!(StoredSaveOrigin::Imported, recorded.origin);
+        assert_eq!("Practice", recorded.alias);
+        assert_eq!(captured.metadata.fingerprint, recorded.fingerprint);
+    }
+
+    #[test]
+    fn persists_the_apply_source_snapshot_with_a_current_capture() {
+        let directory = TempDir::new().unwrap();
+        let applied_source = create_valid_save_with_marker(directory.path(), "preset.dat", 1);
+        let current = create_valid_save_with_marker(directory.path(), "Vwings.dat", 2);
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let preset = repository
+            .capture(
+                &applied_source,
+                StoredSaveKind::Preset,
+                "Practice".into(),
+                None,
+                StoredSaveOrigin::Imported,
+            )
+            .unwrap();
+        repository
+            .record_last_applied(&preset.metadata, preset.metadata.fingerprint)
+            .unwrap();
+
+        let stash = repository
+            .capture(
+                &current,
+                StoredSaveKind::Stash,
+                "After playing".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+        let reopened = StoredSaveRepository::new(directory.path().join("app-data"));
+        let stored = reopened
+            .list()
+            .unwrap()
+            .into_iter()
+            .find(|save| save.id == stash.metadata.id)
+            .unwrap();
+        let source = stored.capture_source.unwrap();
+
+        assert_eq!(preset.metadata.id, source.stored_save_id);
+        assert_eq!("Practice", source.alias);
+        assert_eq!(preset.metadata.fingerprint, source.fingerprint);
+        assert_ne!(stored.fingerprint, source.fingerprint);
+    }
+
+    #[test]
     fn promotes_and_edits_metadata_without_rewriting_payload() {
         let directory = TempDir::new().unwrap();
         let source = create_valid_save(directory.path(), "Vwings.dat");
@@ -1129,12 +1549,55 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(StoredSaveKind::Preset, promoted.kind);
+        assert!(promoted.promoted);
+        assert!(promoted.duplicate_ids.is_empty());
+        assert_eq!(StoredSaveKind::Preset, promoted.metadata.kind);
         assert_eq!(StoredSaveKind::Preset, edited.kind);
         assert_eq!("Practice start", edited.alias);
         assert_eq!(Some("Chapter practice"), edited.description.as_deref());
         assert_eq!(captured.metadata.fingerprint, edited.fingerprint);
         assert_eq!(original_payload, fs::read(payload).unwrap());
         assert_eq!(vec![edited], repository.list().unwrap());
+    }
+
+    #[test]
+    fn keeps_a_stash_when_an_identical_preset_exists() {
+        let directory = TempDir::new().unwrap();
+        let source = create_valid_save(directory.path(), "Vwings.dat");
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let stash = repository
+            .capture(
+                &source,
+                StoredSaveKind::Stash,
+                "Recovery".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+        let preset = repository
+            .capture(
+                &source,
+                StoredSaveKind::Preset,
+                "Practice".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+
+        let result = repository.promote_to_preset(&stash.metadata.id).unwrap();
+
+        assert!(!result.promoted);
+        assert_eq!(vec![preset.metadata.id], result.duplicate_ids);
+        assert_eq!(StoredSaveKind::Preset, result.metadata.kind);
+        assert_eq!(
+            StoredSaveKind::Stash,
+            repository
+                .list()
+                .unwrap()
+                .into_iter()
+                .find(|save| save.id == stash.metadata.id)
+                .unwrap()
+                .kind
+        );
     }
 }

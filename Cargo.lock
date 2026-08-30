@@ -2759,6 +2759,7 @@ dependencies = [
  "slint",
  "slint-build",
  "tempfile",
+ "unicode-segmentation",
  "uuid",
  "windows-sys 0.61.2",
  "winresource",

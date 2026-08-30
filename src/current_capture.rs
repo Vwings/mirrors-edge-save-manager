@@ -112,6 +112,40 @@ pub fn capture_current_as_preset_in_documents(
     )
 }
 
+pub fn current_has_verified_match(
+    repository: &StoredSaveRepository,
+    preset: bool,
+) -> Result<bool, CaptureCurrentError> {
+    let documents = known_folders::documents()
+        .map_err(|source| CaptureCurrentError::Discovery(DiscoveryError::KnownFolder(source)))?;
+    current_has_verified_match_in_documents(repository, &documents, preset)
+}
+
+fn current_has_verified_match_in_documents(
+    repository: &StoredSaveRepository,
+    documents_directory: &Path,
+    preset: bool,
+) -> Result<bool, CaptureCurrentError> {
+    let _guard = MutationGuard::acquire().map_err(CaptureCurrentError::MutationGuard)?;
+    let unfinished =
+        unfinished_journals(repository.root()).map_err(CaptureCurrentError::Recovery)?;
+    if !unfinished.is_empty() {
+        return Err(CaptureCurrentError::RecoveryRequired(unfinished));
+    }
+    let current = require_current(discovery::discover_current_in_documents(
+        documents_directory,
+    )?)?;
+    let kind = if preset {
+        StoredSaveKind::Preset
+    } else {
+        StoredSaveKind::Stash
+    };
+    repository
+        .find_verified_match(current.path(), kind)
+        .map(|matching| matching.is_some())
+        .map_err(CaptureCurrentError::Storage)
+}
+
 fn capture_current_in_documents(
     repository: &StoredSaveRepository,
     documents_directory: &Path,
@@ -246,6 +280,43 @@ mod tests {
             validate_and_fingerprint(&current).unwrap(),
             repository.verify(&captured.metadata.id).unwrap()
         );
+    }
+
+    #[test]
+    fn does_not_capture_identical_current_twice_in_the_same_collection() {
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        let directory = TempDir::new().unwrap();
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let documents = directory.path().join("Documents");
+        let save_directory = save_directory_in(&documents);
+        fs::create_dir_all(&save_directory).unwrap();
+        create_save(&save_directory.join("Vwings.dat"), 1);
+        let first = capture_current_as_stash_in_documents(
+            &repository,
+            &documents,
+            CaptureCurrentRequest {
+                alias: Some("First".into()),
+                description: None,
+            },
+        )
+        .unwrap();
+
+        assert!(current_has_verified_match_in_documents(&repository, &documents, false).unwrap());
+
+        let second = capture_current_as_stash_in_documents(
+            &repository,
+            &documents,
+            CaptureCurrentRequest {
+                alias: Some("Second".into()),
+                description: None,
+            },
+        )
+        .unwrap();
+
+        assert!(first.created);
+        assert!(!second.created);
+        assert_eq!(vec![first.metadata.id], second.duplicate_ids);
+        assert_eq!(1, repository.list().unwrap().len());
     }
 
     #[test]

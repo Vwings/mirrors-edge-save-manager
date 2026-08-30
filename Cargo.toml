@@ -20,6 +20,7 @@ slint = { version = "=1.17.1", default-features = false, features = [
     "std",
     "unstable-winit-030",
 ] }
+unicode-segmentation = "1.13.3"
 uuid = { version = "1.24.0", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]

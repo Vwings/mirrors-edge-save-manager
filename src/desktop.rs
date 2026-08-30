@@ -9,6 +9,7 @@ use mirrors_edge_save_manager::application_error::UserAction;
 use mirrors_edge_save_manager::apply::{ApplyRequest, apply};
 use mirrors_edge_save_manager::current_capture::{
     CaptureCurrentRequest, capture_current_as_preset, capture_current_as_stash,
+    current_has_verified_match,
 };
 use mirrors_edge_save_manager::file_dialog::select_save_file;
 use mirrors_edge_save_manager::first_activation::{
@@ -21,9 +22,10 @@ use mirrors_edge_save_manager::overview::{
     ApplicationOverview, CurrentSaveOverview, GameOverview, RecoveryOverview, StoredSaveOverview,
     load_application_overview,
 };
+use mirrors_edge_save_manager::save_file::SaveFingerprint;
 use mirrors_edge_save_manager::storage::StoredSaveRepository;
 use mirrors_edge_save_manager::stored_save::{StoredSaveKind, StoredSaveOrigin};
-use mirrors_edge_save_manager::stored_save_delete::delete_stored_save;
+use mirrors_edge_save_manager::stored_save_delete::{delete_all_stashes, delete_stored_save};
 use mirrors_edge_save_manager::stored_save_edit::{
     EditStoredSaveRequest, edit_stored_save, promote_stash_to_preset,
 };
@@ -36,6 +38,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     slint::BackendSelector::new()
         .backend_name("winit".into())
         .renderer_name("software".into())
+        .with_winit_window_attributes_hook(|attributes| {
+            attributes.with_theme(Some(winit::window::Theme::Light))
+        })
         .select()?;
     let window = AppWindow::new()?;
     window.set_application_version(env!("CARGO_PKG_VERSION").into());
@@ -76,13 +81,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
         run_selected_operation(weak.clone(), id, activation, filename)
     });
     let weak = window.as_weak();
-    window.on_capture_requested(move |preset| run_current_capture(weak.clone(), preset));
+    window.on_capture_preflight_requested(move |preset, prefix| {
+        run_capture_preflight(weak.clone(), preset, prefix)
+    });
+    let weak = window.as_weak();
+    window.on_capture_requested(move |preset, alias, description| {
+        run_current_capture(weak.clone(), preset, alias, description)
+    });
     let weak = window.as_weak();
     window.on_import_requested(move || run_import(weak.clone()));
     let weak = window.as_weak();
     window.on_manage_requested(move |operation, id, alias, description| {
         run_manage_operation(weak.clone(), operation, id, alias, description)
     });
+    let weak = window.as_weak();
+    window.on_clear_stashes_requested(move || run_clear_stashes(weak.clone()));
     let weak = window.as_weak();
     let had_focus = Rc::new(Cell::new(false));
     window.window().on_winit_window_event(move |_, event| {
@@ -142,6 +155,7 @@ fn refresh_overview(window: slint::Weak<AppWindow>) {
     if let Some(window) = window.upgrade() {
         window.set_selected_save_id(SharedString::default());
         window.set_presets(model(Vec::new()));
+        window.set_built_in_presets(model(Vec::new()));
         window.set_stashes(model(Vec::new()));
         window.set_loading(true);
         window.set_game_state(0);
@@ -150,6 +164,10 @@ fn refresh_overview(window: slint::Weak<AppWindow>) {
         window.set_recovery_error_action(-1);
         window.set_current_state(0);
         window.set_current_error_action(-1);
+        window.set_current_source_alias(SharedString::default());
+        window.set_current_source_applied(SharedString::default());
+        window.set_current_source_kind(0);
+        window.set_current_source_changed(false);
         window.set_activation_filename(SharedString::default());
         window.set_activation_error_action(-1);
         window.set_operation_confirming(false);
@@ -238,6 +256,11 @@ fn apply_overview(
     activation: ActivationSuggestion,
     language: String,
 ) {
+    let current_fingerprint = match &overview.current {
+        CurrentSaveOverview::Found(current) => Some(current.fingerprint),
+        _ => None,
+    };
+    let last_applied = overview.last_applied.as_ref();
     match overview.game {
         GameOverview::Available => {
             window.set_game_state(1);
@@ -288,6 +311,19 @@ fn apply_overview(
                     .into(),
             );
             window.set_current_detail(SharedString::default());
+            if let Some(source) = last_applied {
+                window.set_current_source_alias(source.alias.clone().into());
+                window.set_current_source_applied(
+                    format_system_time(source.applied_at, &language).into(),
+                );
+                window.set_current_source_kind(source_kind(source.kind, source.origin));
+                window.set_current_source_changed(current.fingerprint != source.fingerprint);
+            } else {
+                window.set_current_source_alias(SharedString::default());
+                window.set_current_source_applied(SharedString::default());
+                window.set_current_source_kind(0);
+                window.set_current_source_changed(false);
+            }
         }
         CurrentSaveOverview::Missing { directory } => {
             set_missing_current(&window, 2, directory);
@@ -300,22 +336,40 @@ fn apply_overview(
             window.set_current_error_action(action_code(failure.action));
             window.set_current_modified(SharedString::default());
             window.set_current_detail(failure.detail.into());
+            window.set_current_source_alias(SharedString::default());
+            window.set_current_source_applied(SharedString::default());
+            window.set_current_source_kind(0);
+            window.set_current_source_changed(false);
         }
     }
 
-    let presets = overview
+    let (built_in_presets, presets): (Vec<_>, Vec<_>) = overview
         .stored_saves
         .presets
         .into_iter()
-        .map(|save| save_list_item(save, &language))
+        .partition(|save| save.origin == StoredSaveOrigin::BuiltIn);
+    let presets: Vec<_> = presets
+        .into_iter()
+        .map(|save| save_list_item(save, &language, current_fingerprint))
         .collect();
-    let stashes = overview
+    let built_in_presets: Vec<_> = built_in_presets
+        .into_iter()
+        .map(|save| save_list_item(save, &language, current_fingerprint))
+        .collect();
+    let stashes: Vec<_> = overview
         .stored_saves
         .stashes
         .into_iter()
-        .map(|save| save_list_item(save, &language))
+        .map(|save| save_list_item(save, &language, current_fingerprint))
         .collect();
+    if window.get_active_kind() < 0 {
+        window.set_active_kind(initial_active_kind(
+            !presets.is_empty(),
+            !built_in_presets.is_empty(),
+        ));
+    }
     window.set_presets(model(presets));
+    window.set_built_in_presets(model(built_in_presets));
     window.set_stashes(model(stashes));
 
     if let Some(failure) = overview.stored_saves.failure {
@@ -352,15 +406,57 @@ fn run_selected_operation(
     });
 }
 
-fn run_current_capture(window: slint::Weak<AppWindow>, preset: bool) {
+fn run_current_capture(
+    window: slint::Weak<AppWindow>,
+    preset: bool,
+    alias: SharedString,
+    description: SharedString,
+) {
     if let Some(window) = window.upgrade() {
         begin_operation(&window, if preset { 3 } else { 2 });
         window.set_selected_save_id(SharedString::default());
     }
 
     std::thread::spawn(move || {
-        let result = execute_current_capture(preset);
+        let result = execute_current_capture(preset, alias.to_string(), description.to_string());
         finish_operation(window, result);
+    });
+}
+
+fn run_capture_preflight(window: slint::Weak<AppWindow>, preset: bool, prefix: SharedString) {
+    if let Some(window) = window.upgrade() {
+        begin_operation(&window, if preset { 3 } else { 2 });
+    }
+    std::thread::spawn(move || {
+        let result = StoredSaveRepository::for_current_user()
+            .map_err(mirrors_edge_save_manager::application_error::ApplicationError::from)
+            .and_then(|repository| {
+                current_has_verified_match(&repository, preset)
+                    .map_err(mirrors_edge_save_manager::application_error::ApplicationError::from)
+            });
+        let _ = window.upgrade_in_event_loop(move |window| match result {
+            Ok(true) => {
+                window.set_operation_duplicate_count(1);
+                show_operation_toast(&window, false, -1, if preset { 3 } else { 2 }, 1);
+                window.set_operation_state(2);
+            }
+            Ok(false) => {
+                window.set_capture_kind(preset);
+                window.set_edit_alias(
+                    format!("{} {}", prefix, format_capture_timestamp(SystemTime::now())).into(),
+                );
+                window.set_edit_description(SharedString::default());
+                window.set_operation_state(0);
+                window.set_operation_action(-1);
+                window.set_modal_kind(4);
+            }
+            Err(error) => {
+                let action = action_code(error.action());
+                window.set_operation_action(action);
+                show_operation_toast(&window, true, action, if preset { 3 } else { 2 }, 0);
+                window.set_operation_state(3);
+            }
+        });
     });
 }
 
@@ -377,8 +473,10 @@ fn run_import(window: slint::Weak<AppWindow>) {
         }
         Err(_) => {
             let _ = window.upgrade_in_event_loop(|window| {
+                let action = action_code(UserAction::Retry);
+                window.set_operation_action(action);
+                show_operation_toast(&window, true, action, 4, 0);
                 window.set_operation_state(3);
-                window.set_operation_action(action_code(UserAction::Retry));
             });
         }
     });
@@ -404,7 +502,19 @@ fn run_manage_operation(
     });
 }
 
+fn run_clear_stashes(window: slint::Weak<AppWindow>) {
+    if let Some(window) = window.upgrade() {
+        begin_operation(&window, 8);
+        window.set_selected_save_id(SharedString::default());
+    }
+    std::thread::spawn(move || {
+        let result = execute_clear_stashes();
+        finish_operation(window, result);
+    });
+}
+
 fn begin_operation(window: &AppWindow, operation_kind: i32) {
+    window.set_toast_visible(false);
     window.set_operation_confirming(false);
     window.set_operation_kind(operation_kind);
     window.set_operation_state(1);
@@ -437,10 +547,31 @@ fn finish_operation(
             window.set_selected_save_id(SharedString::default());
             window.set_modal_kind(0);
         }
+        show_operation_toast(
+            &window,
+            operation_state == 3,
+            operation_action,
+            window.get_operation_kind(),
+            duplicate_count,
+        );
         window.set_operation_state(operation_state);
         window.set_operation_action(operation_action);
         window.set_operation_duplicate_count(duplicate_count);
     });
+}
+
+fn show_operation_toast(
+    window: &AppWindow,
+    error: bool,
+    action: i32,
+    operation_kind: i32,
+    duplicate_count: i32,
+) {
+    window.set_toast_error(error);
+    window.set_toast_action(action);
+    window.set_toast_operation_kind(operation_kind);
+    window.set_toast_duplicate_count(duplicate_count);
+    window.set_toast_visible(true);
 }
 
 fn execute_selected_operation(
@@ -449,16 +580,26 @@ fn execute_selected_operation(
     confirmed_filename: String,
 ) -> Result<usize, mirrors_edge_save_manager::application_error::ApplicationError> {
     let repository = StoredSaveRepository::for_current_user()?;
+    let source = repository
+        .list()?
+        .into_iter()
+        .find(|save| save.id == stored_save_id);
     if activation {
-        activate_current(
+        let result = activate_current(
             &repository,
             ActivateCurrentRequest {
                 stored_save_id,
                 confirmed_filename,
             },
         )?;
+        if let Some(source) = source
+            && let Err(error) = repository.record_last_applied(&source, result.fingerprint)
+        {
+            eprintln!("failed to record Apply source: {error}");
+        }
+        Ok(0)
     } else {
-        apply(
+        let result = apply(
             &repository,
             ApplyRequest {
                 stored_save_id,
@@ -466,17 +607,24 @@ fn execute_selected_operation(
                 automatic_stash_description: None,
             },
         )?;
+        if let Some(source) = source
+            && let Err(error) = repository.record_last_applied(&source, result.applied_fingerprint)
+        {
+            eprintln!("failed to record Apply source: {error}");
+        }
+        Ok(result.automatic_stash.duplicate_ids.len())
     }
-    Ok(0)
 }
 
 fn execute_current_capture(
     preset: bool,
+    alias: String,
+    description: String,
 ) -> Result<usize, mirrors_edge_save_manager::application_error::ApplicationError> {
     let repository = StoredSaveRepository::for_current_user()?;
     let request = CaptureCurrentRequest {
-        alias: None,
-        description: None,
+        alias: Some(alias),
+        description: (!description.trim().is_empty()).then_some(description),
     };
     let result = if preset {
         capture_current_as_preset(&repository, request)?
@@ -484,6 +632,13 @@ fn execute_current_capture(
         capture_current_as_stash(&repository, request)?
     };
     Ok(result.duplicate_ids.len())
+}
+
+fn execute_clear_stashes()
+-> Result<usize, mirrors_edge_save_manager::application_error::ApplicationError> {
+    let repository = StoredSaveRepository::for_current_user()?;
+    delete_all_stashes(&repository)?;
+    Ok(0)
 }
 
 fn execute_import(
@@ -510,7 +665,8 @@ fn execute_manage_operation(
     let repository = StoredSaveRepository::for_current_user()?;
     match operation {
         0 => {
-            promote_stash_to_preset(&repository, stored_save_id)?;
+            let result = promote_stash_to_preset(&repository, stored_save_id)?;
+            return Ok(result.duplicate_ids.len());
         }
         1 => {
             edit_stored_save(
@@ -533,9 +689,32 @@ fn set_missing_current(window: &AppWindow, state: i32, _directory: std::path::Pa
     window.set_current_error_action(-1);
     window.set_current_modified(SharedString::default());
     window.set_current_detail(SharedString::default());
+    window.set_current_source_alias(SharedString::default());
+    window.set_current_source_applied(SharedString::default());
+    window.set_current_source_kind(0);
+    window.set_current_source_changed(false);
 }
 
-fn save_list_item(save: StoredSaveOverview, language: &str) -> SaveListItem {
+fn save_list_item(
+    save: StoredSaveOverview,
+    language: &str,
+    current_fingerprint: Option<SaveFingerprint>,
+) -> SaveListItem {
+    let matches_current = current_fingerprint.is_some_and(|current| current == save.fingerprint);
+    let capture_source_kind = save
+        .capture_source
+        .as_ref()
+        .map(|source| source_kind(source.kind, source.origin))
+        .unwrap_or_default();
+    let capture_source_alias = save
+        .capture_source
+        .as_ref()
+        .map(|source| source.alias.clone())
+        .unwrap_or_default();
+    let capture_source_changed = save
+        .capture_source
+        .as_ref()
+        .is_some_and(|source| source.fingerprint != save.fingerprint);
     SaveListItem {
         id: save.id.into(),
         kind: match save.kind {
@@ -550,6 +729,26 @@ fn save_list_item(save: StoredSaveOverview, language: &str) -> SaveListItem {
             StoredSaveOrigin::Current => 1,
             StoredSaveOrigin::Imported => 2,
         },
+        matches_current,
+        capture_source_kind,
+        capture_source_alias: capture_source_alias.into(),
+        capture_source_changed,
+    }
+}
+
+fn source_kind(kind: StoredSaveKind, origin: StoredSaveOrigin) -> i32 {
+    match (kind, origin) {
+        (StoredSaveKind::Preset, StoredSaveOrigin::BuiltIn) => 2,
+        (StoredSaveKind::Preset, _) => 1,
+        (StoredSaveKind::Stash, _) => 3,
+    }
+}
+
+fn initial_active_kind(has_user_presets: bool, has_built_in_presets: bool) -> i32 {
+    if !has_user_presets && has_built_in_presets {
+        1
+    } else {
+        0
     }
 }
 
@@ -577,12 +776,26 @@ fn format_system_time(time: SystemTime, language: &str) -> String {
     let day = local.day();
     let hour = local.hour();
     let minute = local.minute();
+    let second = local.second();
     let offset = local.offset().to_string();
     if language == "zh-CN" {
-        format!("{year:04}年{month:02}月{day:02}日 {hour:02}:{minute:02} {offset}")
+        format!("{year:04}年{month:02}月{day:02}日 {hour:02}:{minute:02}:{second:02} {offset}")
     } else {
-        format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02} {offset}")
+        format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02} {offset}")
     }
+}
+
+fn format_capture_timestamp(time: SystemTime) -> String {
+    let local = chrono::DateTime::<chrono::Local>::from(time);
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        local.year(),
+        local.month(),
+        local.day(),
+        local.hour(),
+        local.minute(),
+        local.second()
+    )
 }
 
 #[cfg(test)]
@@ -607,6 +820,26 @@ mod tests {
             local.month(),
             local.day()
         )));
+        assert!(english.contains(":00:00 "));
+        assert!(chinese.contains(":00:00 "));
+    }
+
+    #[test]
+    fn formats_capture_timestamp_without_timezone_suffix() {
+        let timestamp = format_capture_timestamp(UNIX_EPOCH);
+        assert_eq!(timestamp.len(), 19);
+        assert_eq!(&timestamp[4..5], "-");
+        assert_eq!(&timestamp[7..8], "-");
+        assert_eq!(&timestamp[10..11], " ");
+        assert_eq!(&timestamp[13..14], ":");
+        assert_eq!(&timestamp[16..17], ":");
+    }
+
+    #[test]
+    fn initially_opens_built_ins_only_when_user_presets_are_empty() {
+        assert_eq!(initial_active_kind(false, true), 1);
+        assert_eq!(initial_active_kind(true, true), 0);
+        assert_eq!(initial_active_kind(false, false), 0);
     }
 
     #[test]

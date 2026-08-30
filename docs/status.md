@@ -34,6 +34,11 @@ covers a real Windows sharing violation at `ReplaceFileW`; real-process checks
 cover the cross-process mutation mutex and running-game overlay without changing
 Current or adding StoredSaves. Windows-version acceptance remains.
 
+The first real-game smoke test exposed usability gaps around transient feedback,
+collection-specific actions, duplicate prevention, capture metadata, and
+creation-time display. The corresponding product changes are implemented and
+await one focused debug acceptance pass before release automation resumes.
+
 ## Completed
 
 - Product, domain, safety, storage, and UI direction documented in
@@ -49,7 +54,10 @@ Current or adding StoredSaves. Windows-version acceptance remains.
 - Gzip capture into a hidden staging directory.
 - Decompression and fingerprint verification before StoredSave commit.
 - Schema-versioned JSON metadata in LocalAppData-compatible storage.
-- Duplicate-content warnings without rejecting duplicate entries.
+- Verified Preset duplicate prevention and all-collection Stash prevention
+  without shared payloads or destructive cleanup of existing entries.
+- Capture duplicate preflight before metadata entry, same-content Apply
+  suppression, and persisted last-Apply provenance with Current change status.
 - StoredSave listing and payload integrity verification.
 - Read-only `MirrorsEdge.exe` detection through the Windows process snapshot
   API, with case-insensitive exact executable-name matching.
@@ -96,8 +104,8 @@ Current or adding StoredSaves. Windows-version acceptance remains.
 - Current-to-Preset capture through the same guarded and verified Current
   capture path used by manual Stash creation.
 - Guarded external `.dat` import as a Preset, including case-insensitive
-  extension validation, fixed-size and payload verification, and duplicate hash
-  warnings without rejection.
+  extension validation, fixed-size and payload verification, and verified
+  same-classification duplicate prevention.
 - Tests for Current-to-Preset capture, valid external import, duplicate imports,
   invalid extensions and content, and unfinished-transaction blocking.
 - Atomic StoredSave metadata replacement using a flushed UUID-named temporary
@@ -211,8 +219,11 @@ Current or adding StoredSaves. Windows-version acceptance remains.
   timestamp aliases, preserving Current while the verified copy is stored.
 - Added a native Windows `.dat` picker and connected external import through the
   guarded repository service without adding a cross-platform dialog dependency.
-- Added duplicate-content success warnings for capture and import while keeping
-  duplicate StoredSaves as required by the product rules.
+- Prevented duplicate Presets and prevented manual or automatic Stash creation
+  when any verified StoredSave already preserves Current, while retaining
+  existing user data.
+- Persisted the last Apply source snapshot with Current captures and exposed its
+  alias plus changed-since-Apply state in StoredSave rows.
 - Connected guarded Stash-to-Preset promotion and user StoredSave alias and
   description editing without modifying payload bytes.
 - Centralized every application action code into localized UI guidance, including
@@ -281,6 +292,9 @@ Current or adding StoredSaves. Windows-version acceptance remains.
   single-window Slint file remains together because its private components are
   not reused. The desktop UI controller moved out of the binary entry point so
   `main.rs` now contains only subsystem configuration and application startup.
+- Added Windows GitHub Actions for continuous integration. The separate Draft
+  Release workflow remains uncommitted until the product changes pass CI and a
+  focused real-game smoke test.
 
 ## Last Verification
 
@@ -318,6 +332,11 @@ all 73 tests, strict Clippy, and a release build. The embedded executable icon
 was extracted successfully, and the running release window confirmed the new
 title-bar and header artwork without altering the active game process.
 
+The post-smoke-test product changes passed 89 automated tests, strict Clippy,
+and a fresh release build. The resulting executable is 9,631,744 bytes and
+exposes matching `0.1.0` file and product versions. Focused debug acceptance,
+the GitHub-hosted CI run, and cold-start measurement remain pending.
+
 ## Current Worktree Note
 
 `scratch/` is intentionally ignored and contains local experiments and binary
@@ -342,14 +361,15 @@ into unrelated release ceremony.
   can read too small. Adjust it as one responsive UI pass rather than isolated
   font-size changes.
 - [x] Display the application version unobtrusively in the top area.
-- [x] Add a localized, visually distinct `Built-in` tag to embedded Preset rows.
+- [x] Separate embedded Presets into a localized `Built-in` tab so user-created
+  Presets remain immediately accessible without scrolling past bundled entries.
 - [x] Review every repository document for current behavior. Keep the English
   user README separate from contributor instructions, add `CONTRIBUTING.md`,
   and provide a maintained Simplified Chinese README.
 - [x] Review the flat Rust module layout and the single Slint file. Modularize
   only along real domain, application, component, or localization boundaries;
   do not refactor solely to reduce the number of top-level files.
-- [ ] Design and document the GitHub Release process, including final artifacts,
+- [x] Design and document the GitHub Release process, including final artifacts,
   version/tag relationship, checksums, release notes, and whether publication is
   initially manual or automated. Add dynamic README badges for CI status and
   the latest release once those data sources are available.
@@ -407,6 +427,24 @@ Complete these in order unless the design document is updated first:
   refresh-after-mutation behavior.
 - [x] Inspect the fixed window, list viewport, row actions, and Apply modal at
   simulated 100%, 125%, and 150% desktop scaling.
+- [ ] Verify that success feedback expires, Current capture confirms metadata,
+  and StoredSave creation time remains visible with or without a description.
+- [ ] Verify Preset-only import, confirmed bulk Stash clearing, and duplicate
+  prevention limited to the destination classification.
+
+## Release Resume Order
+
+After the usability fixes pass debug verification, preserve this sequence:
+
+1. Commit and push the fixes, then require the GitHub-hosted CI run to pass.
+2. Repeat the real-game smoke test against the resulting commit.
+3. Finalize and commit the manual Draft Release workflow and release notes.
+4. Push release preparation, require CI to pass, and manually trigger Prepare
+   Release for `0.1.0` from `main`.
+5. Let that workflow create the annotated `v0.1.0` tag and Draft Release at the
+   tested commit.
+6. Download and inspect the release executable, then publish the draft only
+   after explicit maintainer confirmation.
 
 ## Separate Research Track
 

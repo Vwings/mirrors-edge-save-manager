@@ -8,7 +8,9 @@ use crate::game_process::{GameProcessError, is_game_running};
 use crate::recovery::recover_unfinished_transactions;
 use crate::save_file::{SaveFingerprint, validate_and_fingerprint};
 use crate::storage::StoredSaveRepository;
-use crate::stored_save::{StoredSaveKind, StoredSaveMetadata, StoredSaveOrigin};
+use crate::stored_save::{
+    AppliedSourceSnapshot, StoredSaveKind, StoredSaveMetadata, StoredSaveOrigin,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OverviewFailure {
@@ -64,6 +66,8 @@ pub struct StoredSaveOverview {
     pub origin: StoredSaveOrigin,
     pub created_at: SystemTime,
     pub source_filename: String,
+    pub fingerprint: SaveFingerprint,
+    pub capture_source: Option<AppliedSourceSnapshot>,
 }
 
 impl From<StoredSaveMetadata> for StoredSaveOverview {
@@ -76,6 +80,8 @@ impl From<StoredSaveMetadata> for StoredSaveOverview {
             origin: metadata.origin,
             created_at: metadata.created_at,
             source_filename: metadata.source_filename,
+            fingerprint: metadata.fingerprint,
+            capture_source: metadata.capture_source,
         }
     }
 }
@@ -93,6 +99,7 @@ pub struct ApplicationOverview {
     pub recovery: RecoveryOverview,
     pub current: CurrentSaveOverview,
     pub stored_saves: StoredSaveCollectionOverview,
+    pub last_applied: Option<AppliedSourceSnapshot>,
 }
 
 pub fn load_application_overview() -> ApplicationOverview {
@@ -114,6 +121,10 @@ pub fn load_application_overview() -> ApplicationOverview {
     };
 
     let current = load_current_overview();
+    let last_applied = repository
+        .as_ref()
+        .ok()
+        .and_then(|repository| repository.last_applied_source().ok().flatten());
     let stored_saves = load_stored_saves(repository);
 
     ApplicationOverview {
@@ -121,6 +132,7 @@ pub fn load_application_overview() -> ApplicationOverview {
         recovery,
         current,
         stored_saves,
+        last_applied,
     }
 }
 

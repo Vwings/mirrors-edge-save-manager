@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_duplicate_content_but_keeps_each_import() {
+    fn does_not_import_duplicate_content_twice() {
         let _test = MUTATION_GUARD_TEST.lock().unwrap();
         let directory = TempDir::new().unwrap();
         let repository = StoredSaveRepository::new(directory.path().join("app-data"));
@@ -169,8 +169,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(vec![first.metadata.id], second.duplicate_ids);
-        assert_eq!(2, repository.list().unwrap().len());
+        assert_eq!(vec![first.metadata.id.clone()], second.duplicate_ids);
+        assert!(!second.created);
+        assert_eq!(first.metadata, second.metadata);
+        assert_eq!(1, repository.list().unwrap().len());
     }
 
     #[test]

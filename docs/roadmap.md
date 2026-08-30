@@ -52,7 +52,10 @@ Deliverables:
 - Persist schema-versioned StoredSave metadata and gzip payloads.
 - Verify compressed captures before committing them to the repository.
 - List and verify StoredSave entries.
-- Warn about duplicate content without rejecting it.
+- Prevent duplicate Presets and prevent a new Stash when any verified StoredSave
+  already preserves the same content.
+- Record the last manager Apply source and fingerprint, display whether Current
+  has changed since, and suppress capture or Apply dialogs for unchanged data.
 - Support Stash-to-Preset classification changes in the domain model.
 
 Completion criteria:
@@ -107,7 +110,8 @@ Deliverables:
 
 - Decompress the selected StoredSave into a same-directory staging file.
 - Verify staged size and content hash before replacement.
-- Acquire the mutation guard and capture Current as an automatic Stash.
+- Acquire the mutation guard and ensure a verified StoredSave preserves Current,
+  creating an automatic Stash only when required.
 - Write and flush the transaction journal before changing Current.
 - Recheck the game process and Current fingerprint immediately before replace.
 - Atomically replace Current while retaining rollback data.
@@ -118,8 +122,8 @@ Deliverables:
 Completion criteria:
 
 - Applying either a Preset or Stash leaves its StoredSave unchanged.
-- Success produces a verified new Current and an automatic Stash of the old
-  Current.
+- Success produces a verified new Current and either reuses a verified saved
+  copy of the old Current or creates an automatic Stash.
 - Any ordinary failure before commit leaves the old Current available.
 
 ## Phase 5: Recovery and Fault Coverage
@@ -223,8 +227,8 @@ Deliverables:
   choice.
 - Review the complete typography hierarchy and improve undersized normal text
   without adding visual noise or breaking the compact layout.
-- Show the application version in the top bar and add a localized `Built-in`
-  origin tag to embedded Presets.
+- Show the application version in the top bar and separate embedded Presets
+  into a localized `Built-in` tab.
 - Make the missing-save-directory state actionable and disable Apply at the row
   boundary until Mirror's Edge has created its native directory.
 - Review Rust and Slint module boundaries. Split files only where cohesive
@@ -236,6 +240,9 @@ Deliverables:
 - Define the GitHub Release workflow, release artifact names, checksums, release
   notes, and the exact manual or automated publication steps.
 - Run end-to-end tests against a real Mirror's Edge save location.
+- Resolve final smoke-test usability issues around transient feedback,
+  collection-specific actions, Stash cleanup, duplicate prevention, capture
+  metadata confirmation, and consistent creation-time display.
 - Test multiple manager instances and forced termination during apply.
 - Finalize application versioning, icons, Windows metadata, and packaging.
 - Define persisted-data migration policy before changing any schema.

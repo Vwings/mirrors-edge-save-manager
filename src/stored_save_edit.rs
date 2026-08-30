@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::mutation_guard::{MutationGuard, MutationGuardError};
 use crate::recovery::{RecoveryError, unfinished_journals};
-use crate::storage::{StorageError, StoredSaveRepository};
+use crate::storage::{PromoteResult, StorageError, StoredSaveRepository};
 use crate::stored_save::StoredSaveMetadata;
 
 pub struct EditStoredSaveRequest<'a> {
@@ -53,7 +53,7 @@ impl Error for StoredSaveEditError {
 pub fn promote_stash_to_preset(
     repository: &StoredSaveRepository,
     stored_save_id: &str,
-) -> Result<StoredSaveMetadata, StoredSaveEditError> {
+) -> Result<PromoteResult, StoredSaveEditError> {
     with_edit_guard(repository, || repository.promote_to_preset(stored_save_id))
 }
 
@@ -66,10 +66,10 @@ pub fn edit_stored_save(
     })
 }
 
-fn with_edit_guard(
+fn with_edit_guard<T>(
     repository: &StoredSaveRepository,
-    edit: impl FnOnce() -> Result<StoredSaveMetadata, StorageError>,
-) -> Result<StoredSaveMetadata, StoredSaveEditError> {
+    edit: impl FnOnce() -> Result<T, StorageError>,
+) -> Result<T, StoredSaveEditError> {
     let _guard = MutationGuard::acquire().map_err(StoredSaveEditError::MutationGuard)?;
     let unfinished =
         unfinished_journals(repository.root()).map_err(StoredSaveEditError::Recovery)?;
@@ -131,7 +131,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(StoredSaveKind::Preset, promoted.kind);
+        assert!(promoted.promoted);
+        assert_eq!(StoredSaveKind::Preset, promoted.metadata.kind);
         assert_eq!("Practice", edited.alias);
         assert_eq!(Some("Chapter start"), edited.description.as_deref());
         assert_eq!(captured.metadata.fingerprint, edited.fingerprint);

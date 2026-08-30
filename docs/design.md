@@ -143,6 +143,7 @@ A Stash is a StoredSave created for recovery or personal history.
 - A Stash is created automatically before every apply operation.
 - A user can manually capture Current as a Stash at any time.
 - Stash entries are never automatically deleted in the first version.
+- A user can explicitly clear the complete Stash collection after confirmation.
 - A Stash can be applied to Current.
 - A Stash can be promoted to Preset by moving its classification.
 
@@ -153,31 +154,35 @@ Promotion does not require generating or modifying save content.
 ### Capture Current
 
 ```text
-CurrentSave -> new StoredSave
+CurrentSave -> verified StoredSave
 ```
 
-The Current file remains in place and usable. The operation records the file's
-metadata and stores an immutable copy.
+The Current file remains in place and usable. A Preset capture is skipped when
+an identical verified Preset exists. A Stash capture is skipped when any
+identical verified Preset or Stash already preserves the same bytes.
 
 ### Apply StoredSave
 
 ```text
-CurrentSave -> automatic Stash
+CurrentSave -> verified automatic Stash
 selected StoredSave -> new Current content
 selected StoredSave remains unchanged
 ```
 
 Applying a Preset and applying a Stash are the same storage operation. The
-source is never consumed.
+source is never consumed. If any identical verified StoredSave already preserves
+Current, Apply reuses it instead of adding another automatic history entry.
 
 ### Save Current as Preset
 
-This captures Current into a new StoredSave with `kind = Preset`.
+This ensures Current exists as a verified StoredSave with `kind = Preset`. It
+does not create another Preset when identical verified Preset content exists.
 
 ### Promote Stash
 
 This changes a Stash's classification to Preset. It is a move between product
-collections, not a binary rewrite.
+collections, not a binary rewrite. If an identical verified Preset already
+exists, promotion makes no change and leaves the Stash available.
 
 ### Delete StoredSave
 
@@ -194,26 +199,36 @@ partially visible entry. Physical tombstone cleanup is best effort; a cleanup
 failure may retain inaccessible bytes but must not resurrect a partially
 deleted StoredSave or endanger Current.
 
+The Stash collection also exposes a confirmed bulk-delete action. It deletes
+only user Stashes, leaving Current and every Preset unchanged, and runs under
+the same mutation guard and unfinished-transaction gate as single deletion.
+
 ### Import External Save
 
 The user selects a `.dat` file, the application validates it, captures it as a
 StoredSave, and asks for an alias and optional description.
 
-Identical content may be imported more than once. The application should warn
-about the matching hash but must not silently reject the operation.
+The application does not create another Preset when identical verified content
+already exists in Presets. A matching hash in Stash does not block import:
+Preset and Stash represent different user intent.
 
 ### StoredSave Naming
 
 Aliases are trimmed before storage, must not be empty, and are limited to 80
-Unicode characters. User-entered aliases that violate these rules are rejected
-rather than truncated.
+Unicode characters. Descriptions are optional, trimmed before storage, and
+limited to 200 Unicode characters. User-entered metadata that violates these
+rules is rejected rather than truncated.
 
-When the caller does not provide an alias, Current captures use the StoredSave
-classification and local timestamp, such as `Stash 2026-08-01 14:30:00` or
-`Preset 2026-08-01 14:30:00`. External imports first use the source filename
-stem; if no usable stem exists, they fall back to `Preset` plus the local
-timestamp. Generated aliases pass through the same validation as user-entered
-aliases.
+Manual Current capture opens a focused metadata dialog before writing. Preset
+capture first checks Presets; Stash capture checks both Presets and Stashes. A
+match reports that no save is needed without asking for metadata. Otherwise,
+the dialog prefills the classification and local timestamp as the alias and lets
+the user edit that value and an optional description. Callers without an
+interactive metadata step, such as automatic Apply Stashes, use the StoredSave
+classification and local timestamp, such as `Stash 2026-08-01 14:30:00`.
+External imports first use the source filename stem; if no usable stem exists,
+they fall back to `Preset` plus the local timestamp. Generated aliases pass
+through the same validation as user-entered aliases.
 
 ### Validate Save File
 
@@ -240,10 +255,13 @@ directory, finishes and flushes the gzip stream, decompresses it again, and
 requires the reconstructed bytes to match the source size and SHA-256 before
 committing the entry by directory rename.
 
-The first implementation should prefer one self-contained payload per
-StoredSave. Content-addressed deduplication is not required; duplicate content
-is allowed at the product level and the compressed files are small in the
-provided samples.
+Every committed StoredSave keeps one self-contained payload; StoredSaves never
+share a content-addressed payload. Before writing, capture compares fingerprints
+and verifies matching payloads. Preset capture compares Presets, while Stash
+capture compares every StoredSave because either classification already provides
+the recovery bytes a Stash would preserve. A corrupt or unavailable match does
+not replace the need for a new verified capture. Existing duplicates are
+retained rather than removed without user approval.
 
 Application metadata must use an explicit schema version. Filesystem creation
 and modification times are captured as source metadata but are not the
@@ -267,8 +285,16 @@ settings or discard a StoredSave merely because its schema is newer or unknown.
 
 The first metadata schema stores the StoredSave ID, classification, alias,
 description, origin, application creation time, source filename and modification
-time, original size, SHA-256, and compression format. Invalid or unsupported
-metadata is reported rather than silently skipped.
+time, original size, SHA-256, compression format, and an optional snapshot of
+the last Apply source when capturing Current. The source snapshot retains its
+classification, origin, alias, Apply time, and fingerprint so later rename or
+deletion does not erase Stash history. Invalid or unsupported metadata is
+reported rather than silently skipped.
+
+Settings schema version one includes an optional last-Apply record containing
+the source ID, classification, origin, alias snapshot, Apply time, and applied
+fingerprint. Development settings created before that optional field remain
+valid and mean that no manager Apply has been recorded.
 
 ## 7. Safe Apply Requirements
 
@@ -295,7 +321,8 @@ The replacement transaction is:
 
 1. Acquire the application lock.
 2. Verify the game is not running.
-3. Capture and verify Current as an automatic Stash.
+3. Ensure a verified StoredSave preserves Current, creating an automatic Stash
+   only when no identical verified Preset or Stash exists.
 4. Stage the selected payload beside the live `.dat` file.
 5. Verify staged size and content hash.
 6. Write a transaction journal and flush it.
@@ -373,8 +400,8 @@ original_fingerprint: size + SHA-256
 replacement_fingerprint: size + SHA-256
 ```
 
-The automatic Stash must already be committed and verified before the first
-journal is published. Its ID provides a durable additional copy of the original
+The StoredSave preserving Current must already be committed and verified before
+the first journal is published. Its ID provides a durable copy of the original
 bytes, but it does not replace the same-directory rollback requirement.
 
 Journal creation and each phase update use a sibling temporary JSON file. The
@@ -385,7 +412,7 @@ mutations and is never silently deleted.
 
 The phases mean:
 
-- `Prepared`: the automatic Stash and replacement staging file are verified,
+- `Prepared`: the StoredSave preserving Current and replacement staging file are verified,
   and Current still has the recorded original fingerprint.
 - `Replacing`: process state and Current fingerprint were rechecked, and the
   next filesystem action is `ReplaceFileW`.
@@ -398,7 +425,7 @@ The phases mean:
 There is no persisted `Committed` phase. Deleting the journal is the commit
 marker. Cleanup after `Verified` deletes rollback first and the journal last. A
 crash after rollback cleanup but before journal deletion is recoverable because
-Current has the verified replacement fingerprint and the automatic Stash still
+Current has the verified replacement fingerprint and the preserved StoredSave still
 contains the original bytes.
 
 ### 7.3 Durable Apply Order
@@ -407,7 +434,8 @@ The detailed apply sequence is:
 
 1. Acquire the mutation guard and discover exactly one Current.
 2. Validate and fingerprint Current as the expected original.
-3. Capture and verify Current as the automatic Stash.
+3. Reuse a verified StoredSave matching Current or create and verify an automatic
+   Stash.
 4. Create the same-directory replacement file, finish decompression, flush it,
    and verify its size and SHA-256.
 5. Publish the `Prepared` journal.
@@ -549,12 +577,21 @@ set.
 - Current shows its role, modification time, and direct capture actions. Raw
   paths, full hashes, the account-derived filename, and healthy process or
   recovery labels do not compete with the normal workflow.
-- Preset and Stash remain two views of one StoredSave collection. Compact tabs
-  expose one collection at a time and retain counts for the inactive view.
+- Current shows the last source successfully applied by the manager and whether
+  its present fingerprint still equals the Apply result. With no record it says
+  that no manager Apply is known; a differing fingerprint is described as
+  `Changed since Apply` without claiming that the game was necessarily the
+  writer.
+- User Presets, built-in Presets, and Stash remain views of one StoredSave
+  collection. Compact tabs expose one view at a time and retain counts for the
+  inactive views. Import is available only from the user Presets view.
 - Each StoredSave row exposes its available actions directly. Apply is a
   labeled primary action; Edit and Delete use consistent vector icons; a Stash
   additionally offers the labeled `Make Preset` action. Selecting a row never
   opens a generic action menu or details layer.
+- A StoredSave whose fingerprint already equals Current is labeled `Current`
+  instead of offering Apply, so it cannot open a redundant confirmation or
+  create an unnecessary automatic Stash attempt.
 - Built-in Presets expose only Apply. User Presets expose Edit, Delete, and
   Apply. Stashes expose Edit, Make Preset, Delete, and Apply.
 - Icon-only controls use familiar vector symbols and always have an accessible
@@ -571,7 +608,8 @@ set.
   names the target explicitly, requires confirmation, and is available only for
   user StoredSaves. Make Preset executes directly and refreshes the collection.
 - Manual capture appears as a direct Current-to-Stash or Current-to-Preset
-  action. External import remains a direct library action.
+  action. Its editable default alias includes the classification and current
+  local timestamp. External import remains a direct user-Preset action.
 - While `MirrorsEdge.exe` is running, a full-content safety overlay blocks the
   workspace and shows only the running-game reason plus a concise Current
   summary. The application polls process state in the background and restores a
@@ -589,8 +627,8 @@ set.
   that choice, and the explicit choice is persisted in application settings.
 - The top bar shows the application version with low visual emphasis so bug
   reports can identify the running build without opening a separate surface.
-- Built-in Presets carry a compact localized `Built-in` tag. The tag communicates
-  origin and read-only behavior without adding another action or category.
+- Built-in Presets occupy a dedicated localized tab and therefore do not repeat
+  an origin tag on every row. Their read-only action set remains visible there.
 - Before release, typography is reviewed as a complete hierarchy rather than by
   increasing every size uniformly. Normal body text, metadata, buttons, tabs,
   and modal guidance must remain comfortably readable while preserving the
@@ -629,15 +667,23 @@ than a generic dark dashboard theme:
   no-existing-Current state and includes the derived account-named filename
   before confirmation.
 - Non-destructive Current capture is available directly from the Current plane
-  as either Stash or Preset and uses the validated timestamp alias default until
-  metadata editing is exposed. External import uses a native Windows `.dat`
+  as either Stash or Preset and opens a focused alias and optional-description
+  confirmation before writing. External import uses a native Windows `.dat`
   picker, followed by the same complete validation and repository capture rules
   as every other import path; the picker filter is convenience, not validation.
 - User StoredSave alias and description are read-only in rows. Edit opens a
   focused modal with visible labeled fields and Save/Cancel controls. Losing
   focus within a field does not create a hidden always-editable row state.
+  Every row displays its creation time to the second independently of whether
+  a description exists.
   Stash promotion is a direct secondary action and never rewrites payload bytes;
   built-in metadata remains read-only.
+- Collection-level actions follow the selected tab: Import appears only for
+  Presets, while confirmed bulk clearing appears only for a non-empty Stash.
+- A successful operation shows a compact floating Toast for four seconds
+  without changing layout geometry. Duplicate prevention states whether no new
+  entry was saved or Current was already preserved by a verified copy. Errors
+  remain visible until the user changes state or retries.
 - Version one does not expose built-in Preset hiding or restoration in the UI.
   Visibility is a low-frequency display preference rather than a StoredSave
   classification, and adding a recovery surface for it would compete with the
@@ -742,7 +788,8 @@ Before implementation is considered safe, tests must cover:
   contain unrelated backup `.dat` files.
 - Exact-size and invalid external files.
 - Capture and hash verification.
-- Duplicate-content warning.
+- Preset duplicate prevention plus all-collection Stash prevention, including
+  verified reuse and a corrupt-match fallback capture.
 - Apply with automatic Stash creation.
 - Process-running lock.
 - Current changed between scan and replacement.

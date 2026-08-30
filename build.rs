@@ -1,5 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-changed=ui/app-window.slint");
+    println!("cargo:rerun-if-changed=translations");
     println!("cargo:rerun-if-changed=resources/app-icon.png");
     println!("cargo:rerun-if-changed=resources/app-icon.ico");
     println!("cargo:rerun-if-changed=resources/header-logo.png");

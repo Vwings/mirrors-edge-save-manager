@@ -54,6 +54,20 @@ pub fn delete_stored_save(
         .map_err(StoredSaveDeleteError::Storage)
 }
 
+pub fn delete_all_stashes(
+    repository: &StoredSaveRepository,
+) -> Result<usize, StoredSaveDeleteError> {
+    let _guard = MutationGuard::acquire().map_err(StoredSaveDeleteError::MutationGuard)?;
+    let unfinished =
+        unfinished_journals(repository.root()).map_err(StoredSaveDeleteError::Recovery)?;
+    if !unfinished.is_empty() {
+        return Err(StoredSaveDeleteError::RecoveryRequired(unfinished));
+    }
+    repository
+        .delete_all_stashes()
+        .map_err(StoredSaveDeleteError::Storage)
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use std::fs::{self, File};
@@ -70,11 +84,11 @@ mod tests {
 
     use super::*;
 
-    fn create_save(path: &Path) {
+    fn create_save(path: &Path, marker: u8) {
         let mut file = File::create(path).unwrap();
         file.set_len(SAVE_FILE_SIZE).unwrap();
         file.seek(SeekFrom::Start(SAVE_FILE_SIZE - 1)).unwrap();
-        file.write_all(&[1]).unwrap();
+        file.write_all(&[marker]).unwrap();
         file.sync_all().unwrap();
     }
 
@@ -84,7 +98,7 @@ mod tests {
         let directory = TempDir::new().unwrap();
         let repository = StoredSaveRepository::new(directory.path().join("app-data"));
         let source = directory.path().join("Vwings.dat");
-        create_save(&source);
+        create_save(&source, 1);
         let captured = repository
             .capture(
                 &source,
@@ -106,7 +120,7 @@ mod tests {
         let directory = TempDir::new().unwrap();
         let repository = StoredSaveRepository::new(directory.path().join("app-data"));
         let source = directory.path().join("Vwings.dat");
-        create_save(&source);
+        create_save(&source, 1);
         let captured = repository
             .capture(
                 &source,
@@ -128,5 +142,31 @@ mod tests {
             Err(StoredSaveDeleteError::RecoveryRequired(paths)) if paths == vec![journal_path]
         ));
         assert_eq!(1, repository.list().unwrap().len());
+    }
+
+    #[test]
+    fn deletes_all_stashes_but_keeps_presets() {
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        let directory = TempDir::new().unwrap();
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let source = directory.path().join("Vwings.dat");
+        for (index, (kind, alias)) in [
+            (StoredSaveKind::Preset, "Practice"),
+            (StoredSaveKind::Stash, "Before practice"),
+            (StoredSaveKind::Stash, "After practice"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            create_save(&source, index as u8 + 1);
+            repository
+                .capture(&source, kind, alias.into(), None, StoredSaveOrigin::Current)
+                .unwrap();
+        }
+
+        assert_eq!(2, delete_all_stashes(&repository).unwrap());
+        let remaining = repository.list().unwrap();
+        assert_eq!(1, remaining.len());
+        assert_eq!(StoredSaveKind::Preset, remaining[0].kind);
     }
 }

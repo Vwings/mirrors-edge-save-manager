@@ -53,6 +53,7 @@ pub enum UserAction {
     UseSupportedPlatform,
     Retry,
     ReportProblem,
+    CorrectDescription,
 }
 
 #[derive(Debug)]
@@ -436,6 +437,7 @@ fn classify_staging(error: &StagingError) -> UserAction {
 fn classify_storage(error: &StorageError, context: SaveFileContext) -> UserAction {
     match error {
         StorageError::Alias(source) => classify_alias(source),
+        StorageError::Description(_) => UserAction::CorrectDescription,
         StorageError::Source(source) => classify_save_file(source, context),
         StorageError::Io { .. } => UserAction::CheckFileAccess,
         StorageError::Json { .. }
@@ -480,6 +482,7 @@ mod tests {
         assert_eq!(0, UserAction::CorrectAlias as i32);
         assert_eq!(11, UserAction::SelectStash as i32);
         assert_eq!(15, UserAction::ReportProblem as i32);
+        assert_eq!(16, UserAction::CorrectDescription as i32);
     }
 
     #[test]

@@ -955,6 +955,106 @@ mod tests {
     }
 
     #[test]
+    fn applies_a_save_without_duplicating_an_existing_verified_stash() {
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        let directory = TempDir::new().unwrap();
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let replacement_source = directory.path().join("replacement.dat");
+        create_save(&replacement_source, 2);
+        let replacement = repository
+            .capture(
+                &replacement_source,
+                StoredSaveKind::Preset,
+                "Practice".into(),
+                None,
+                StoredSaveOrigin::Imported,
+            )
+            .unwrap();
+        let documents = directory.path().join("Documents");
+        let save_directory = save_directory_in(&documents);
+        fs::create_dir_all(&save_directory).unwrap();
+        let current = save_directory.join("Vwings.dat");
+        create_save(&current, 1);
+        let existing_stash = repository
+            .capture(
+                &current,
+                StoredSaveKind::Stash,
+                "Existing".into(),
+                None,
+                StoredSaveOrigin::Current,
+            )
+            .unwrap();
+
+        let result = apply_in_documents(
+            &repository,
+            &documents,
+            ApplyRequest {
+                stored_save_id: &replacement.metadata.id,
+                automatic_stash_alias: Some("Before Practice".into()),
+                automatic_stash_description: None,
+            },
+        )
+        .unwrap();
+
+        assert!(!result.automatic_stash.created);
+        assert_eq!(
+            vec![existing_stash.metadata.id.clone()],
+            result.automatic_stash.duplicate_ids
+        );
+        assert_eq!(existing_stash.metadata, result.automatic_stash.metadata);
+        assert_eq!(2, repository.list().unwrap().len());
+    }
+
+    #[test]
+    fn applies_a_save_without_stashing_current_that_matches_a_preset() {
+        let _test = MUTATION_GUARD_TEST.lock().unwrap();
+        let directory = TempDir::new().unwrap();
+        let repository = StoredSaveRepository::new(directory.path().join("app-data"));
+        let current_source = directory.path().join("current-source.dat");
+        create_save(&current_source, 1);
+        let current_preset = repository
+            .capture(
+                &current_source,
+                StoredSaveKind::Preset,
+                "Current start".into(),
+                None,
+                StoredSaveOrigin::Imported,
+            )
+            .unwrap();
+        let replacement_source = directory.path().join("replacement.dat");
+        create_save(&replacement_source, 2);
+        let replacement = repository
+            .capture(
+                &replacement_source,
+                StoredSaveKind::Preset,
+                "Next start".into(),
+                None,
+                StoredSaveOrigin::Imported,
+            )
+            .unwrap();
+        let documents = directory.path().join("Documents");
+        let save_directory = save_directory_in(&documents);
+        fs::create_dir_all(&save_directory).unwrap();
+        let current = save_directory.join("Vwings.dat");
+        create_save(&current, 1);
+
+        let result = apply_in_documents(
+            &repository,
+            &documents,
+            ApplyRequest {
+                stored_save_id: &replacement.metadata.id,
+                automatic_stash_alias: None,
+                automatic_stash_description: None,
+            },
+        )
+        .unwrap();
+
+        assert!(!result.automatic_stash.created);
+        assert_eq!(current_preset.metadata, result.automatic_stash.metadata);
+        assert_eq!(2, repository.list().unwrap().len());
+    }
+
+    #[test]
     fn aborts_before_replacement_when_current_changes() {
         let _test = MUTATION_GUARD_TEST.lock().unwrap();
         let directory = TempDir::new().unwrap();

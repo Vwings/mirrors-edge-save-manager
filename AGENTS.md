@@ -14,10 +14,16 @@ changes and never overwrite files under `scratch/save-format/samples/`.
 - `Current` is the single writable, account-named `<username>.dat` used by the
   game. Other `.dat` files in the native directory are ignored backups.
 - `StoredSave` is immutable; `Preset` and `Stash` are its classifications.
-- Every Apply captures Current as a Stash first. Applying never changes the
-  source StoredSave; capturing leaves Current in place.
-- Promoting a Stash changes metadata only. Duplicate content is allowed and
-  receives a hash-based warning.
+- Every Apply first ensures a verified StoredSave exists for Current, creating
+  a Stash only when no identical verified Preset or Stash already exists.
+  Applying never changes the source StoredSave; capturing leaves Current in
+  place.
+- Prevent new duplicate Presets within Presets, and prevent a new Stash when any
+  verified StoredSave already preserves the same content. Promotion is a
+  metadata-only no-op when an identical verified Preset already exists.
+- Do not open capture metadata or Apply confirmation when the requested content
+  already exists in the destination or already equals Current. Keep final
+  storage and transaction checks authoritative after UI preflight.
 - Treat save bytes as opaque. Do not edit unknown offsets or generate saves.
 
 ## Safety Invariants
@@ -49,7 +55,7 @@ changes and never overwrite files under `scratch/save-format/samples/`.
   documentation; compare headings, workflows, features, and safety guidance.
 - Validate paths, identifiers, aliases, metadata, and journal schemas at the
   boundary. Make failures explicit and actionable.
-- Add focused tests for discovery, hashing, duplicate warnings, locks, staging,
+- Add focused tests for discovery, hashing, duplicate prevention, locks, staging,
   replacement, rollback, and startup recovery.
 - Use `apply_patch` for edits. Do not commit, branch, reset, or create copied
   executable/package directories unless explicitly requested.

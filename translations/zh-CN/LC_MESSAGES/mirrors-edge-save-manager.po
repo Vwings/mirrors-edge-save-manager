@@ -15,6 +15,9 @@ msgstr "SAVE MANAGER"
 msgid "CURRENT"
 msgstr "当前存档"
 
+msgid "Current"
+msgstr "当前"
+
 msgid "Active game save"
 msgstr "当前游戏存档"
 
@@ -39,14 +42,47 @@ msgstr "导入 .dat"
 msgid "Presets"
 msgstr "预设"
 
+msgid "My Presets"
+msgstr "我的预设"
+
 msgid "Stash"
 msgstr "暂存"
+
+msgid "Preset"
+msgstr "预设"
+
+msgid "My Preset"
+msgstr "我的预设"
 
 msgid "Built-in Preset"
 msgstr "内置预设"
 
 msgid "Built-in"
 msgstr "内置"
+
+msgid "New Game"
+msgstr "新游戏"
+
+msgid "Completed Campaign"
+msgstr "主线通关"
+
+msgid "69% Speedrun"
+msgstr "69% 速通"
+
+msgid "All Time Trials Unlocked"
+msgstr "已解锁全部计时赛"
+
+msgid "Fresh save before starting the campaign"
+msgstr "开始游戏前的全新存档"
+
+msgid "Completed campaign starting save"
+msgstr "主线已通关的存档"
+
+msgid "Community 69% speedrun starting save"
+msgstr "社区 69% 速通起始存档"
+
+msgid "Completed campaign with all time trials unlocked and no PB times or Ghosts"
+msgstr "主线已通关并解锁全部计时赛，不含个人最佳成绩或幽灵记录"
 
 msgid "Apply"
 msgstr "应用"
@@ -66,6 +102,9 @@ msgstr "刷新存档"
 msgid "No Presets yet"
 msgstr "暂无预设"
 
+msgid "No built-in Presets"
+msgstr "暂无内置预设"
+
 msgid "No Stash entries yet"
 msgstr "暂无暂存项"
 
@@ -75,14 +114,44 @@ msgstr "正在加载…"
 msgid "Done."
 msgstr "完成。"
 
-msgid "Done. Matching save content already existed."
-msgstr "完成。已有内容相同的存档。"
+msgid "Saved"
+msgstr "保存于"
+
+msgid "Not saved. Identical content already exists in saved copies."
+msgstr "未保存。已保存副本中已有内容相同的存档。"
+
+msgid "Not saved. Identical content already exists in Presets."
+msgstr "未保存。预设中已有内容相同的存档。"
+
+msgid "Not changed. Identical content already exists in Presets."
+msgstr "未更改。预设中已有内容相同的存档。"
+
+msgid "Done. Current was already preserved."
+msgstr "完成。当前存档已有可靠副本。"
+
+msgid "From"
+msgstr "来源"
+
+msgid "All Stash entries deleted."
+msgstr "已清空全部暂存。"
+
+msgid "Clear Stash"
+msgstr "清空暂存"
 
 msgid "EDIT SAVED COPY"
 msgstr "编辑已保存副本"
 
 msgid "DELETE SAVED COPY"
 msgstr "删除已保存副本"
+
+msgid "SAVE CURRENT AS PRESET"
+msgstr "将当前存档保存为预设"
+
+msgid "SAVE CURRENT AS STASH"
+msgstr "将当前存档保存为暂存"
+
+msgid "CLEAR STASH"
+msgstr "清空暂存"
 
 msgid "Name"
 msgstr "名称"
@@ -96,6 +165,9 @@ msgstr "保存更改"
 msgid "Delete forever"
 msgstr "永久删除"
 
+msgid "Delete all"
+msgstr "全部删除"
+
 msgid "MIRROR'S EDGE IS RUNNING"
 msgstr "MIRROR'S EDGE 正在运行"
 
@@ -107,6 +179,9 @@ msgstr "等待游戏关闭…"
 
 msgid "Enter a name from 1 to 80 characters."
 msgstr "请输入 1 到 80 个字符的名称。"
+
+msgid "Enter a description of up to 200 characters."
+msgstr "请输入不超过 200 个字符的说明。"
 
 msgid "Choose a valid Mirror's Edge .dat file."
 msgstr "请选择有效的 Mirror's Edge .dat 文件。"
@@ -201,8 +276,17 @@ msgstr "正在保存更改…"
 msgid "Deleting saved copy…"
 msgstr "正在删除保存副本…"
 
+msgid "Saving Current…"
+msgstr "正在保存当前存档…"
+
+msgid "Deleting all Stash entries…"
+msgstr "正在清空全部暂存…"
+
 msgid "Permanently delete this saved copy? This cannot be undone. Current and all other saved copies stay unchanged."
 msgstr "要永久删除此保存副本吗？此操作无法撤销。当前存档和其他保存副本不会改变。"
+
+msgid "Permanently delete every Stash entry? This cannot be undone. Current and all Presets stay unchanged."
+msgstr "要永久删除全部暂存吗？此操作无法撤销。当前存档和所有预设不会改变。"
 
 msgid "Delete this saved copy"
 msgstr "删除此保存副本"
@@ -212,6 +296,24 @@ msgstr "已验证"
 
 msgid "Modified"
 msgstr "已修改"
+
+msgid "No manager Apply recorded"
+msgstr "没有管理器应用记录"
+
+msgid "Applied from"
+msgstr "应用自"
+
+msgid "Last applied from"
+msgstr "最后应用自"
+
+msgid "Applied"
+msgstr "应用于"
+
+msgid "Changed since Apply"
+msgstr "应用后已变化"
+
+msgid "Unchanged since Apply"
+msgstr "应用后未变化"
 
 msgid "Checking active save…"
 msgstr "正在检查当前存档…"

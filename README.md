@@ -48,20 +48,27 @@ The manager includes four read-only Presets for common starting points:
   unlocked, ready for time-trial practice.
 
 Built-in Presets are embedded in the application and cannot be edited or
-deleted. They are currently shown in the Presets list by default.
+deleted. They appear in their own **Built-in** tab, separate from user-created
+saves in **My Presets**.
 
 ## Features
 
 - Find the game's save folder and the current save automatically.
 - Save Current as a Preset or Stash with a name and description.
 - Import an external `.dat` file as a Preset.
+- Clear all Stash history at once after an explicit confirmation.
 - Edit or permanently delete user-created Presets and Stashes with explicit
   confirmation; built-in Presets remain read-only.
 - Switch safely between Presets and Stashes without changing the source copy.
 - Back up Current automatically before every switch.
 - Check file integrity before and after each operation.
 - Recover an interrupted operation without losing the original save.
-- Warn you when an imported save has duplicate content.
+- Avoid storing duplicate Presets, and avoid creating a Stash when any verified
+  saved copy already preserves the same content.
+- Record the last Apply source and changed-since-Apply state with saves captured
+  from Current so Stash history remains identifiable.
+- Show the last manager-applied source on Current and whether Current still
+  matches the applied bytes.
 - Include four verified, read-only built-in Presets for common starting points.
 - Support English and Simplified Chinese, with your choice saved automatically.
 
@@ -105,16 +112,20 @@ preferences such as the selected language.
 
 1. Close Mirror's Edge before changing a save. Mutating actions are disabled
    while `MirrorsEdge.exe` is running.
-2. Open the manager and review **Current**, including its path and fingerprint.
+2. Open the manager and review **Current**, including its last Apply source and
+   whether the active bytes have changed since that Apply.
 3. Use **Save as Stash** for a safety checkpoint, or **Save as Preset** for a
-   reusable starting point.
+   reusable starting point. Review the timestamped suggested name, add an
+   optional description, and confirm.
 4. Use **Import .dat** to add a save supplied by another source. Choose a clear
    alias and optional description; the source file is never modified.
 5. Select a Preset or Stash and choose **Apply**. The confirmation shows that
    Current will be backed up automatically before the selected copy is applied.
 6. Use the **Stash** tab to restore an earlier state. A Stash can be promoted to
    a Preset with **Make Preset**. User-created Presets and Stashes can also be
-   renamed, described, or permanently deleted after confirmation.
+   renamed, described, or permanently deleted after confirmation. Use
+   **Clear Stash** to remove the complete Stash history after one additional
+   confirmation; Current and Presets remain unchanged.
 
 If Current is missing but the save directory exists, the first activation flow
 asks you to confirm the account-derived `<username>.dat` filename before it
@@ -169,7 +180,8 @@ copies you still need, close the manager, and then delete
 - Windows x64 is the supported platform.
 - Save files are copied and restored as complete files; progress editing is
   outside the manager's scope.
-- Stashes remain available until you remove them.
+- Stashes remain available until you remove them individually or clear the
+  Stash collection.
 - Built-in Presets are read-only sources.
 
 ## For contributors

@@ -1,3 +1,5 @@
+import { ScrollView } from "std-widgets.slint";
+
 global Guidance {
     public pure function for-action(action: int) -> string {
         if action == 0 { return @tr("Enter a name from 1 to 80 characters."); }
@@ -15,7 +17,26 @@ global Guidance {
         if action == 12 { return @tr("Confirm the exact Windows account save filename."); }
         if action == 13 { return @tr("This operation requires supported Windows APIs."); }
         if action == 14 { return @tr("The operation did not complete. Try again."); }
+        if action == 16 { return @tr("Enter a description of up to 200 characters."); }
         return @tr("The operation failed. Report the problem if it repeats.");
+    }
+}
+
+global BuiltInText {
+    public pure function alias(value: string) -> string {
+        if value == "New Game" { return @tr("New Game"); }
+        if value == "Completed Campaign" { return @tr("Completed Campaign"); }
+        if value == "69% Speedrun" { return @tr("69% Speedrun"); }
+        if value == "All Time Trials Unlocked" { return @tr("All Time Trials Unlocked"); }
+        return value;
+    }
+
+    public pure function description(value: string) -> string {
+        if value == "Fresh save before starting the campaign" { return @tr("Fresh save before starting the campaign"); }
+        if value == "Completed campaign starting save" { return @tr("Completed campaign starting save"); }
+        if value == "Community 69% speedrun starting save" { return @tr("Community 69% speedrun starting save"); }
+        if value == "Completed campaign with all time trials unlocked and no PB times or Ghosts" { return @tr("Completed campaign with all time trials unlocked and no PB times or Ghosts"); }
+        return value;
     }
 }
 
@@ -26,20 +47,25 @@ export struct SaveListItem {
     description: string,
     created-at: string,
     origin: int,
+    matches-current: bool,
+    capture-source-kind: int,
+    capture-source-alias: string,
+    capture-source-changed: bool,
 }
 
 component ActionButton inherits Rectangle {
     in property <string> label;
     in property <bool> primary: true;
+    in property <bool> danger: false;
     in property <bool> enabled: true;
     callback activated;
     height: 36px;
     border-width: 1px;
-    border-color: !root.enabled ? #d1d1ce : root.primary ? #e51f2a : touch.has-hover ? #66666a : #b7b7b3;
-    background: !root.enabled ? #eeeeeb : root.primary ? (touch.pressed ? #b91821 : touch.has-hover ? #d51c26 : #e51f2a) : touch.pressed ? #dededb : touch.has-hover ? #f2f2ef : white;
+    border-color: !root.enabled ? #d1d1ce : root.primary ? #e51f2a : root.danger ? #dc8f94 : touch.has-hover ? #66666a : #b7b7b3;
+    background: !root.enabled ? #eeeeeb : root.primary ? (touch.pressed ? #b91821 : touch.has-hover ? #d51c26 : #e51f2a) : root.danger && touch.has-hover ? #fff0f0 : touch.pressed ? #dededb : touch.has-hover ? #f2f2ef : white;
     Text {
         text: root.label;
-        color: !root.enabled ? #9d9da0 : root.primary ? white : #333337;
+        color: !root.enabled ? #9d9da0 : root.primary ? white : root.danger ? #a51e25 : #333337;
         font-size: 11px;
         font-weight: 750;
         horizontal-alignment: center;
@@ -151,23 +177,107 @@ component LabeledInput inherits Rectangle {
     in property <string> label;
     in-out property <string> value;
     in property <bool> enabled: true;
-    height: 60px;
+    in property <int> max-characters;
+    height: 66px;
+    clip: true;
     border-width: 1px;
     border-color: field.has-focus ? #e51f2a : #bdbdba;
     background: root.enabled ? white : #eeeeeb;
     VerticalLayout {
-        padding-left: 10px; padding-right: 10px; padding-top: 6px; padding-bottom: 5px; spacing: 3px;
-        Text { text: root.label.to-uppercase(); color: #737377; font-size: 9px; font-weight: 800; }
-        field := TextInput {
-            height: 30px;
-            text <=> root.value;
-            enabled: root.enabled;
-            color: #202023;
-            font-size: 13px;
-            vertical-alignment: center;
-            selection-foreground-color: white;
-            selection-background-color: #e51f2a;
-            accessible-label: root.label;
+        padding-left: 12px; padding-right: 12px; padding-top: 7px; padding-bottom: 6px; spacing: 4px;
+        HorizontalLayout {
+            height: 14px;
+            Text { text: root.label.to-uppercase(); color: #737377; font-size: 11px; font-weight: 750; letter-spacing: 0.2px; }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Text {
+                text: root.value.character-count + "/" + root.max-characters;
+                color: root.value.character-count > root.max-characters ? #a51e25 : #8a8a8f;
+                font-size: 11px;
+                horizontal-alignment: right;
+            }
+        }
+        input-viewport := Rectangle {
+            height: 34px;
+            clip: true;
+            background: transparent;
+            field := TextInput {
+                private property <length> computed-x;
+                private property <length> margin: 10px;
+                x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.computed-x));
+                width: max(parent.width - self.text-cursor-width, self.preferred-width);
+                height: parent.height;
+                text <=> root.value;
+                enabled: root.enabled;
+                single-line: true;
+                color: #202023;
+                font-size: 14px;
+                font-weight: 500;
+                letter-spacing: 0.1px;
+                vertical-alignment: center;
+                selection-foreground-color: white;
+                selection-background-color: #e51f2a;
+                accessible-label: root.label;
+                cursor-position-changed(cursor-position) => {
+                    if cursor-position.x + self.computed-x < self.margin {
+                        self.computed-x = -cursor-position.x + self.margin;
+                    } else if cursor-position.x + self.computed-x > parent.width - self.margin - self.text-cursor-width {
+                        self.computed-x = parent.width - cursor-position.x - self.margin - self.text-cursor-width;
+                    }
+                }
+            }
+        }
+    }
+}
+
+component LabeledTextArea inherits Rectangle {
+    in property <string> label;
+    in-out property <string> value;
+    in property <bool> enabled: true;
+    in property <int> max-characters;
+    height: 138px;
+    clip: true;
+    border-width: 1px;
+    border-color: description-field.has-focus ? #e51f2a : #bdbdba;
+    background: root.enabled ? white : #eeeeeb;
+    VerticalLayout {
+        padding-left: 12px; padding-right: 6px; padding-top: 7px; padding-bottom: 6px; spacing: 4px;
+        HorizontalLayout {
+            height: 14px;
+            Text { text: root.label.to-uppercase(); color: #737377; font-size: 11px; font-weight: 750; letter-spacing: 0.2px; }
+            Rectangle { horizontal-stretch: 1; background: transparent; }
+            Text {
+                text: root.value.character-count + "/" + root.max-characters;
+                color: root.value.character-count > root.max-characters ? #a51e25 : #8a8a8f;
+                font-size: 11px;
+                horizontal-alignment: right;
+            }
+        }
+        description-scroll := ScrollView {
+            height: 108px;
+            viewport-width: self.visible-width;
+            viewport-height: max(self.visible-height, description-field.preferred-height);
+            description-field := TextInput {
+                width: description-scroll.visible-width;
+                height: max(description-scroll.visible-height, self.preferred-height);
+                text <=> root.value;
+                enabled: root.enabled;
+                single-line: false;
+                wrap: word-wrap;
+                color: #202023;
+                font-size: 14px;
+                font-weight: 500;
+                letter-spacing: 0.1px;
+                selection-foreground-color: white;
+                selection-background-color: #e51f2a;
+                accessible-label: root.label;
+                cursor-position-changed(cursor-position) => {
+                    if cursor-position.y + description-scroll.viewport-y < 0px {
+                        description-scroll.viewport-y = min(0px, max(description-scroll.visible-height - self.height, -cursor-position.y));
+                    } else if cursor-position.y + description-scroll.viewport-y > description-scroll.visible-height - 20px {
+                        description-scroll.viewport-y = min(0px, max(description-scroll.visible-height - self.height, description-scroll.visible-height - cursor-position.y - 20px));
+                    }
+                }
+            }
         }
     }
 }
@@ -176,9 +286,13 @@ component CurrentPanel inherits Rectangle {
     in property <int> current-state;
     in property <int> error-action;
     in property <string> modified;
+    in property <string> source-alias;
+    in property <string> source-applied;
+    in property <int> source-kind;
+    in property <bool> source-changed;
     in property <bool> mutation-enabled;
     callback capture-requested(bool);
-    height: 112px;
+    height: 128px;
     background: #f1f2f3;
     Rectangle { x: 0px; width: 4px; background: #e51f2a; }
     HorizontalLayout {
@@ -186,12 +300,25 @@ component CurrentPanel inherits Rectangle {
         VerticalLayout {
             horizontal-stretch: 1; spacing: 4px;
             Text { text: @tr("CURRENT"); color: #171719; font-size: 17px; font-weight: 850; letter-spacing: 1px; }
-            Text {
-                text: root.current-state == 1 ? @tr("Active game save") : root.current-state == 2 ? @tr("No active save yet") : root.current-state == 3 ? @tr("Launch Mirror's Edge once to create its save folder.") : root.current-state == 0 ? @tr("Checking active save…") : Guidance.for-action(root.error-action);
-                color: root.current-state == 1 ? #606065 : #9b5b18;
+            if root.current-state != 1: Text {
+                text: root.current-state == 2 ? @tr("No active save yet") : root.current-state == 3 ? @tr("Launch Mirror's Edge once to create its save folder.") : root.current-state == 0 ? @tr("Checking active save…") : Guidance.for-action(root.error-action);
+                color: #9b5b18;
                 font-size: 12px;
             }
-            if root.current-state == 1: Text { text: root.modified == "" ? @tr("Verified") : @tr("Modified") + "  " + root.modified; color: #818186; font-size: 10px; }
+            if root.current-state == 1: Text {
+                text: root.source-kind == 0 ? @tr("No manager Apply recorded") : (root.source-changed ? @tr("Last applied from") : @tr("Applied from")) + "  " + (root.source-kind == 1 ? @tr("My Preset") : root.source-kind == 2 ? @tr("Built-in") : @tr("Stash")) + " · " + (root.source-kind == 2 ? BuiltInText.alias(root.source-alias) : root.source-alias);
+                color: root.source-kind == 0 ? #818186 : #4f4f54;
+                font-size: 12px;
+                font-weight: root.source-kind == 0 ? 500 : 650;
+                overflow: elide;
+            }
+            if root.current-state == 1 && root.source-kind != 0: Text {
+                text: @tr("Applied") + "  " + root.source-applied + "  ·  " + (root.source-changed ? @tr("Changed since Apply") : @tr("Unchanged since Apply"));
+                color: root.source-changed ? #9b5b18 : #737378;
+                font-size: 11px;
+                overflow: elide;
+            }
+            if root.current-state == 1: Text { text: root.modified == "" ? @tr("Verified") : @tr("Modified") + "  " + root.modified; color: #818186; font-size: 11px; }
         }
         ActionButton { width: 112px; primary: false; enabled: root.mutation-enabled && root.current-state == 1; label: @tr("Save as Stash"); activated => { root.capture-requested(false); } }
         ActionButton { width: 120px; primary: false; enabled: root.mutation-enabled && root.current-state == 1; label: @tr("Save as Preset"); activated => { root.capture-requested(true); } }
@@ -202,8 +329,13 @@ component SaveRow inherits Rectangle {
     in property <SaveListItem> save;
     in property <bool> mutation-enabled;
     in property <bool> apply-enabled;
+    in property <bool> actions-visible: true;
+    private property <string> display-alias: root.save.origin == 0 ? BuiltInText.alias(root.save.alias) : root.save.alias;
+    private property <string> display-description: root.save.origin == 0 ? BuiltInText.description(root.save.description) : root.save.description;
+    private property <string> capture-source-detail: root.save.capture-source-kind == 0 ? @tr("No manager Apply recorded") : @tr("From") + "  " + (root.save.capture-source-kind == 1 ? @tr("My Preset") : root.save.capture-source-kind == 2 ? @tr("Built-in") : @tr("Stash")) + " · " + (root.save.capture-source-kind == 2 ? BuiltInText.alias(root.save.capture-source-alias) : root.save.capture-source-alias) + "  ·  " + (root.save.capture-source-changed ? @tr("Changed since Apply") : @tr("Unchanged since Apply"));
     callback action(int, SaveListItem);
-    height: 82px;
+    callback tooltip-changed(string, length, length, length);
+    height: root.save.origin == 1 ? 98px : root.save.origin == 0 ? 70px : 86px;
     border-width: 1px;
     border-color: #dededb;
     background: white;
@@ -213,19 +345,55 @@ component SaveRow inherits Rectangle {
             horizontal-stretch: 1; spacing: 3px;
             HorizontalLayout {
                 height: 22px; spacing: 8px;
-                Text { horizontal-stretch: 1; text: root.save.alias; color: #1d1d20; font-size: 14px; font-weight: 720; overflow: elide; vertical-alignment: center; }
-                if root.save.origin == 0: Rectangle {
-                    width: 54px; height: 20px; border-radius: 2px;
-                    background: #fff0f0; border-width: 1px; border-color: #e8aeb1;
-                    Text { text: @tr("Built-in"); color: #a51e25; font-size: 9px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                title-text := Text {
+                    horizontal-stretch: 1; text: root.display-alias; color: #1d1d20; font-size: 14px; font-weight: 720; overflow: elide; vertical-alignment: center;
+                    title-hover := TouchArea {
+                        changed has-hover => {
+                            root.tooltip-changed(
+                                self.has-hover && title-text.preferred-width > title-text.width ? root.display-alias : "",
+                                self.absolute-position.x,
+                                self.absolute-position.y,
+                                self.height,
+                            );
+                        }
+                    }
                 }
             }
-            Text { text: root.save.description != "" ? root.save.description : root.save.created-at; color: #6f6f74; font-size: 11px; overflow: elide; }
+            if root.save.description != "": description-text := Text {
+                text: root.display-description; color: #6f6f74; font-size: 11px; overflow: elide;
+                description-hover := TouchArea {
+                    changed has-hover => {
+                        root.tooltip-changed(
+                            self.has-hover && description-text.preferred-width > description-text.width ? root.display-description : "",
+                            self.absolute-position.x,
+                            self.absolute-position.y,
+                            self.height,
+                        );
+                    }
+                }
+            }
+            if root.save.origin == 1: source-text := Text {
+                text: root.capture-source-detail;
+                color: root.save.capture-source-changed ? #9b5b18 : #737378;
+                font-size: 11px;
+                overflow: elide;
+                source-hover := TouchArea {
+                    changed has-hover => {
+                        root.tooltip-changed(
+                            self.has-hover && source-text.preferred-width > source-text.width ? root.capture-source-detail : "",
+                            self.absolute-position.x,
+                            self.absolute-position.y,
+                            self.height,
+                        );
+                    }
+                }
+            }
+            if root.save.origin != 0: Text { text: @tr("Saved") + "  " + root.save.created-at; color: #8a8a8f; font-size: 11px; overflow: elide; }
         }
-        if root.save.origin != 0: IconButton { icon-kind: 0; accessible-name: @tr("Edit name and description"); enabled: root.mutation-enabled; activated => { root.action(1, root.save); } }
-        if root.save.kind == 1: ActionButton { width: 96px; primary: false; enabled: root.mutation-enabled; label: @tr("Make Preset"); activated => { root.action(3, root.save); } }
-        if root.save.origin != 0: IconButton { icon-kind: 1; danger: true; accessible-name: @tr("Delete this saved copy"); enabled: root.mutation-enabled; activated => { root.action(2, root.save); } }
-        ActionButton { width: 78px; enabled: root.apply-enabled; label: @tr("Apply"); activated => { root.action(0, root.save); } }
+        if root.actions-visible && root.save.origin != 0: IconButton { icon-kind: 0; accessible-name: @tr("Edit name and description"); enabled: root.mutation-enabled; activated => { root.action(1, root.save); } }
+        if root.actions-visible && root.save.kind == 1: ActionButton { width: 96px; primary: false; enabled: root.mutation-enabled; label: @tr("Make Preset"); activated => { root.action(3, root.save); } }
+        if root.actions-visible && root.save.origin != 0: IconButton { icon-kind: 1; danger: true; accessible-name: @tr("Delete this saved copy"); enabled: root.mutation-enabled; activated => { root.action(2, root.save); } }
+        if root.actions-visible: ActionButton { width: 78px; enabled: root.apply-enabled && !root.save.matches-current; label: root.save.matches-current ? @tr("Current") : @tr("Apply"); activated => { root.action(0, root.save); } }
     }
 }
 
@@ -253,7 +421,7 @@ component TimelineStep inherits HorizontalLayout {
     VerticalLayout {
         horizontal-stretch: 1; spacing: 2px;
         Text { text: root.title; color: #262629; font-size: 13px; font-weight: 720; }
-        Text { text: root.detail; color: #707075; font-size: 10px; overflow: elide; }
+        Text { text: root.detail; color: #707075; font-size: 11px; overflow: elide; }
     }
 }
 
@@ -278,7 +446,12 @@ export component AppWindow inherits Window {
     in-out property <int> current-error-action: -1;
     in-out property <string> current-modified;
     in-out property <string> current-detail;
+    in-out property <string> current-source-alias;
+    in-out property <string> current-source-applied;
+    in-out property <int> current-source-kind;
+    in-out property <bool> current-source-changed;
     in-out property <[SaveListItem]> presets;
+    in-out property <[SaveListItem]> built-in-presets;
     in-out property <[SaveListItem]> stashes;
     in-out property <int> library-error-action: -1;
     in-out property <string> library-error-detail;
@@ -290,24 +463,47 @@ export component AppWindow inherits Window {
     in-out property <int> operation-kind;
     in-out property <int> operation-action: -1;
     in-out property <int> operation-duplicate-count;
+    in-out property <int> toast-operation-kind;
+    in-out property <int> toast-duplicate-count;
+    in-out property <bool> toast-visible;
+    in-out property <bool> toast-error;
+    in-out property <int> toast-action: -1;
     in-out property <string> language: "en";
     in property <string> application-version;
     in-out property <int> modal-kind: 0;
-    private property <int> active-kind: 0;
+    in-out property <int> active-kind: -1;
     private property <string> selected-alias;
-    private property <string> edit-alias;
-    private property <string> edit-description;
-    private property <bool> mutation-ready: !root.loading && root.operation-state != 1 && root.game-state == 1 && (root.recovery-state == 1 || root.recovery-state == 2);
+    in-out property <string> edit-alias;
+    in-out property <string> edit-description;
+    in-out property <bool> capture-kind;
+    in-out property <string> tooltip-text;
+    private property <length> tooltip-x;
+    private property <length> tooltip-y;
+    private property <length> tooltip-anchor-height;
+    private property <[SaveListItem]> active-saves: root.active-kind == 0 ? root.presets : root.active-kind == 1 ? root.built-in-presets : root.stashes;
+    private property <bool> mutation-ready: root.modal-kind == 0 && !root.loading && root.operation-state != 1 && root.game-state == 1 && (root.recovery-state == 1 || root.recovery-state == 2);
     out property <bool> apply-ready: root.mutation-ready && (root.current-state == 1 || root.current-state == 2);
     callback refresh-requested;
     callback game-poll-requested;
     callback operation-confirmed(string, bool, string);
-    callback capture-requested(bool);
+    callback capture-preflight-requested(bool, string);
+    callback capture-requested(bool, string, string);
     callback import-requested;
     callback manage-requested(int, string, string, string);
+    callback clear-stashes-requested;
     callback language-requested(string);
 
     game-poll := Timer { interval: 1500ms; running: true; triggered => { root.game-poll-requested(); } }
+    toast-dismiss := Timer {
+        interval: 4000ms;
+        running: root.toast-visible;
+        triggered => {
+            root.toast-visible = false;
+            if root.operation-state == 2 || root.operation-state == 3 {
+                root.operation-state = 0;
+            }
+        }
+    }
 
     VerticalLayout {
         padding: 22px; spacing: 14px;
@@ -330,14 +526,14 @@ export component AppWindow inherits Window {
                 Text { text: @tr("MIRROR'S EDGE"); color: #171719; font-size: 14px; font-weight: 850; letter-spacing: 1px; }
                 HorizontalLayout {
                     height: 14px; spacing: 8px;
-                    Text { height: 14px; text: @tr("SAVE MANAGER"); color: #747479; font-size: 9px; font-weight: 750; letter-spacing: 1px; vertical-alignment: center; }
-                    Text { height: 14px; text: "v" + root.application-version; color: #98989c; font-size: 9px; font-weight: 650; vertical-alignment: center; }
+                    Text { height: 14px; text: @tr("SAVE MANAGER"); color: #747479; font-size: 10px; font-weight: 750; letter-spacing: 1px; vertical-alignment: center; }
+                    Text { height: 14px; text: "v" + root.application-version; color: #98989c; font-size: 10px; font-weight: 650; vertical-alignment: center; }
                     Rectangle { horizontal-stretch: 1; background: transparent; }
                 }
             }
             Rectangle { horizontal-stretch: 1; background: transparent; }
             LanguagePicker { language: root.language; language-selected(language) => { root.language-requested(language); } }
-            IconButton { icon-kind: 2; accessible-name: @tr("Refresh saves"); enabled: !root.loading && root.operation-state != 1; activated => { root.refresh-requested(); } }
+            IconButton { icon-kind: 2; accessible-name: @tr("Refresh saves"); enabled: root.modal-kind == 0 && !root.loading && root.operation-state != 1; activated => { root.refresh-requested(); } }
         }
 
         if root.game-state == 3 || root.recovery-state == 3 || root.library-error-action >= 0: Rectangle {
@@ -345,11 +541,25 @@ export component AppWindow inherits Window {
             Text {
                 x: 12px; width: parent.width - 24px;
                 text: root.game-state == 3 ? Guidance.for-action(root.game-error-action) : root.recovery-state == 3 ? Guidance.for-action(root.recovery-error-action) : Guidance.for-action(root.library-error-action);
-                color: #a51e25; font-size: 10px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
+                color: #a51e25; font-size: 11px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
             }
         }
 
-        CurrentPanel { current-state: root.current-state; error-action: root.current-error-action; modified: root.current-modified; mutation-enabled: root.mutation-ready; capture-requested(preset) => { root.capture-requested(preset); } }
+        CurrentPanel {
+            current-state: root.current-state;
+            error-action: root.current-error-action;
+            modified: root.current-modified;
+            source-alias: root.current-source-alias;
+            source-applied: root.current-source-applied;
+            source-kind: root.current-source-kind;
+            source-changed: root.current-source-changed;
+            mutation-enabled: root.mutation-ready;
+            capture-requested(preset) => {
+                root.operation-state = 0;
+                root.operation-action = -1;
+                root.capture-preflight-requested(preset, preset ? @tr("Preset") : @tr("Stash"));
+            }
+        }
 
         Rectangle {
             vertical-stretch: 1; background: #f7f7f4; border-width: 1px; border-color: #d4d4d0; clip: true;
@@ -358,38 +568,65 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     height: 36px; spacing: 8px;
                     Text { text: @tr("SAVED COPIES"); color: #303034; font-size: 12px; font-weight: 820; letter-spacing: 0.8px; vertical-alignment: center; horizontal-stretch: 1; }
-                    ActionButton { width: 100px; primary: false; enabled: root.mutation-ready; label: @tr("Import .dat"); activated => { root.import-requested(); } }
+                    if root.active-kind == 0: ActionButton { width: 100px; primary: false; enabled: root.mutation-ready; label: @tr("Import .dat"); activated => { root.import-requested(); } }
+                    if root.active-kind == 2 && root.stashes.length > 0: ActionButton {
+                        width: 106px;
+                        primary: false;
+                        danger: true;
+                        enabled: root.mutation-ready;
+                        label: @tr("Clear Stash");
+                        activated => {
+                            root.toast-visible = false;
+                            root.operation-state = 0;
+                            root.operation-action = -1;
+                            root.modal-kind = 5;
+                        }
+                    }
                 }
                 HorizontalLayout {
                     height: 36px; spacing: 4px;
                     Rectangle {
                         horizontal-stretch: 1; background: root.active-kind == 0 ? #e51f2a : tab-preset.has-hover ? #ededE9 : white; border-width: 1px; border-color: root.active-kind == 0 ? #e51f2a : #cececa;
-                        Text { text: @tr("Presets") + "  " + root.presets.length; color: root.active-kind == 0 ? white : #444448; font-size: 11px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
-                        tab-preset := TouchArea { mouse-cursor: pointer; accessible-role: AccessibleRole.tab; accessible-label: @tr("Presets"); clicked => { root.active-kind = 0; } }
+                        Text { text: @tr("My Presets") + "  " + root.presets.length; color: root.active-kind == 0 ? white : #444448; font-size: 11px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
+                        tab-preset := TouchArea { mouse-cursor: pointer; accessible-role: AccessibleRole.tab; accessible-label: @tr("My Presets"); clicked => { root.tooltip-text = ""; root.active-kind = 0; } }
                     }
                     Rectangle {
-                        horizontal-stretch: 1; background: root.active-kind == 1 ? #e51f2a : tab-stash.has-hover ? #ededE9 : white; border-width: 1px; border-color: root.active-kind == 1 ? #e51f2a : #cececa;
-                        Text { text: @tr("Stash") + "  " + root.stashes.length; color: root.active-kind == 1 ? white : #444448; font-size: 11px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
-                        tab-stash := TouchArea { mouse-cursor: pointer; accessible-role: AccessibleRole.tab; accessible-label: @tr("Stash"); clicked => { root.active-kind = 1; } }
+                        horizontal-stretch: 1; background: root.active-kind == 1 ? #e51f2a : tab-built-in.has-hover ? #ededE9 : white; border-width: 1px; border-color: root.active-kind == 1 ? #e51f2a : #cececa;
+                        Text { text: @tr("Built-in"); color: root.active-kind == 1 ? white : #444448; font-size: 11px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
+                        tab-built-in := TouchArea { mouse-cursor: pointer; accessible-role: AccessibleRole.tab; accessible-label: @tr("Built-in"); clicked => { root.tooltip-text = ""; root.active-kind = 1; } }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1; background: root.active-kind == 2 ? #e51f2a : tab-stash.has-hover ? #ededE9 : white; border-width: 1px; border-color: root.active-kind == 2 ? #e51f2a : #cececa;
+                        Text { text: @tr("Stash") + "  " + root.stashes.length; color: root.active-kind == 2 ? white : #444448; font-size: 11px; font-weight: 750; horizontal-alignment: center; vertical-alignment: center; }
+                        tab-stash := TouchArea { mouse-cursor: pointer; accessible-role: AccessibleRole.tab; accessible-label: @tr("Stash"); clicked => { root.tooltip-text = ""; root.active-kind = 2; } }
                     }
                 }
                 Rectangle {
                     vertical-stretch: 1; background: transparent;
-                    if (root.active-kind == 0 ? root.presets.length : root.stashes.length) == 0: Text { text: root.loading ? @tr("Loading…") : root.active-kind == 0 ? @tr("No Presets yet") : @tr("No Stash entries yet"); color: #77777c; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-                    if (root.active-kind == 0 ? root.presets.length : root.stashes.length) > 0: Flickable {
+                    if root.active-saves.length == 0: Text { text: root.loading ? @tr("Loading…") : root.active-kind == 0 ? @tr("No Presets yet") : root.active-kind == 1 ? @tr("No built-in Presets") : @tr("No Stash entries yet"); color: #77777c; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+                    if root.active-saves.length > 0: Flickable {
                         viewport-width: self.width;
                         viewport-height: rows.preferred-height;
                         rows := VerticalLayout {
                             width: parent.width; spacing: 7px;
-                            for save in root.active-kind == 0 ? root.presets : root.stashes: SaveRow {
+                            for save in root.active-saves: SaveRow {
                                 save: save;
                                 mutation-enabled: root.mutation-ready;
                                 apply-enabled: root.apply-ready;
+                                actions-visible: root.modal-kind == 0;
+                                tooltip-changed(text, x, y, anchor-height) => {
+                                    root.tooltip-text = text;
+                                    root.tooltip-x = x;
+                                    root.tooltip-y = y;
+                                    root.tooltip-anchor-height = anchor-height;
+                                }
                                 action(action, save) => {
+                                    root.tooltip-text = "";
                                     root.selected-save-id = save.id;
-                                    root.selected-alias = save.alias;
+                                    root.selected-alias = save.origin == 0 ? BuiltInText.alias(save.alias) : save.alias;
                                     root.edit-alias = save.alias;
                                     root.edit-description = save.description;
+                                    root.toast-visible = false;
                                     root.operation-state = 0;
                                     root.operation-action = -1;
                                     if action == 0 { root.modal-kind = 1; }
@@ -404,52 +641,115 @@ export component AppWindow inherits Window {
             }
         }
 
-        if root.operation-state == 2: Text { height: 20px; text: root.operation-duplicate-count > 0 ? @tr("Done. Matching save content already existed.") : @tr("Done."); color: #247342; font-size: 11px; font-weight: 700; horizontal-alignment: center; }
-        if root.operation-state == 3 && root.modal-kind == 0: Text { height: 28px; text: Guidance.for-action(root.operation-action); color: #a51e25; font-size: 11px; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; }
+    }
+
+    if root.tooltip-text != "": Rectangle {
+        z: 25;
+        x: min(parent.width - self.width - 16px, max(16px, root.tooltip-x));
+        width: tooltip-measure.preferred-width + 28px < 150px ? 150px : tooltip-measure.preferred-width + 28px > 420px ? 420px : tooltip-measure.preferred-width + 28px;
+        height: tooltip-label.preferred-height + 26px < 42px ? 42px : tooltip-label.preferred-height + 26px > 132px ? 132px : tooltip-label.preferred-height + 26px;
+        y: root.tooltip-y + root.tooltip-anchor-height + 6px + self.height <= parent.height - 16px
+            ? root.tooltip-y + root.tooltip-anchor-height + 6px
+            : max(16px, root.tooltip-y - self.height - 6px);
+        background: #fffafad9;
+        border-width: 1px;
+        border-color: #d8b3b5cc;
+        border-radius: 4px;
+        drop-shadow-color: #a51e2533;
+        drop-shadow-offset-y: 3px;
+        drop-shadow-blur: 8px;
+        tooltip-measure := Text {
+            text: root.tooltip-text;
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: 0.1px;
+            opacity: 0;
+        }
+        tooltip-label := Text {
+            x: 14px;
+            y: 13px;
+            width: parent.width - 28px;
+            height: parent.height - 26px;
+            text: root.tooltip-text;
+            color: #303034;
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: 0.1px;
+            wrap: word-wrap;
+            overflow: elide;
+        }
+    }
+
+    Rectangle {
+        width: toast-label.preferred-width + 36px < 120px ? 120px : toast-label.preferred-width + 36px > parent.width - 64px ? parent.width - 64px : toast-label.preferred-width + 36px;
+        height: 40px;
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 80px + (root.toast-visible ? 0px : 8px);
+        z: 35;
+        opacity: root.toast-visible ? 1 : 0;
+        background: root.toast-error ? #fff1f1fa : #fff7f7fa;
+        border-width: 1px;
+        border-color: root.toast-error ? #df858b : #d9979c;
+        border-radius: 4px;
+        drop-shadow-color: #a51e2552;
+        drop-shadow-offset-x: 0px;
+        drop-shadow-offset-y: 4px;
+        drop-shadow-blur: 10px;
+        animate opacity, y { duration: 180ms; easing: ease-out; }
+        toast-label := Text {
+            x: 18px;
+            width: parent.width - 36px;
+            text: root.toast-error ? Guidance.for-action(root.toast-action) : root.toast-operation-kind == 8 ? @tr("All Stash entries deleted.") : root.toast-duplicate-count > 0 && (root.toast-operation-kind == 0 || root.toast-operation-kind == 1) ? @tr("Done. Current was already preserved.") : root.toast-duplicate-count > 0 && root.toast-operation-kind == 2 ? @tr("Not saved. Identical content already exists in saved copies.") : root.toast-duplicate-count > 0 && (root.toast-operation-kind == 3 || root.toast-operation-kind == 4) ? @tr("Not saved. Identical content already exists in Presets.") : root.toast-duplicate-count > 0 && root.toast-operation-kind == 5 ? @tr("Not changed. Identical content already exists in Presets.") : @tr("Done.");
+            color: root.toast-error ? #a51e25 : #303034;
+            font-size: 12px;
+            font-weight: 650;
+            overflow: elide;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
     }
 
     if root.modal-kind != 0: Rectangle {
+        z: 30;
         background: #00000066;
         TouchArea { enabled: true; }
         Rectangle {
-            width: 520px; height: root.modal-kind == 1 ? 430px : root.modal-kind == 2 ? 330px : 270px;
+            width: 520px; height: root.modal-kind == 1 ? 430px : root.modal-kind == 2 || root.modal-kind == 4 ? 430px : root.modal-kind == 5 ? 290px : 270px;
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            clip: true;
             background: #f8f8f5; border-width: 1px; border-color: #c8c8c4;
             VerticalLayout {
                 padding: 24px; spacing: 14px;
                 HorizontalLayout {
                     height: 28px;
-                    Text { horizontal-stretch: 1; text: root.modal-kind == 1 ? (root.current-state == 2 ? @tr("ACTIVATE CURRENT") : @tr("APPLY SAVE")) : root.modal-kind == 2 ? @tr("EDIT SAVED COPY") : @tr("DELETE SAVED COPY"); color: #1d1d20; font-size: 14px; font-weight: 850; letter-spacing: 0.7px; }
+                    Text { horizontal-stretch: 1; text: root.modal-kind == 1 ? (root.current-state == 2 ? @tr("ACTIVATE CURRENT") : @tr("APPLY SAVE")) : root.modal-kind == 2 ? @tr("EDIT SAVED COPY") : root.modal-kind == 3 ? @tr("DELETE SAVED COPY") : root.modal-kind == 4 ? (root.capture-kind ? @tr("SAVE CURRENT AS PRESET") : @tr("SAVE CURRENT AS STASH")) : @tr("CLEAR STASH"); color: #1d1d20; font-size: 14px; font-weight: 850; letter-spacing: 0.7px; }
                 }
-                Text { text: root.selected-alias; color: #e51f2a; font-size: 15px; font-weight: 750; overflow: elide; }
+                if root.modal-kind <= 3: Text { text: root.selected-alias; color: #e51f2a; font-size: 15px; font-weight: 750; overflow: elide; }
                 if root.modal-kind == 1: VerticalLayout {
                     spacing: 5px;
-                    Text { height: 18px; text: @tr("WHAT HAPPENS AFTER YOU CONFIRM"); color: #68686c; font-size: 10px; font-weight: 820; letter-spacing: 0.6px; }
-                    Text { height: 18px; text: @tr("No action needed — Apply runs this sequence automatically."); color: #77777c; font-size: 10px; }
+                    Text { height: 18px; text: @tr("WHAT HAPPENS AFTER YOU CONFIRM"); color: #68686c; font-size: 11px; font-weight: 820; letter-spacing: 0.6px; }
+                    Text { height: 18px; text: @tr("No action needed — Apply runs this sequence automatically."); color: #77777c; font-size: 11px; }
                     TimelineStep { number: "1"; connect-next: true; title: root.current-state == 2 ? @tr("Create Current") : @tr("Back up Current"); detail: root.current-state == 2 ? @tr("No existing Current will be replaced") : @tr("The active save becomes a new Stash"); }
                     TimelineStep { number: "2"; connect-next: true; title: @tr("Apply selected save"); detail: @tr("The selected saved copy remains unchanged"); }
                     TimelineStep { number: "3"; title: @tr("Verify and finish"); detail: @tr("Any verification failure restores the original Current"); }
                     if root.current-state == 2: Text { height: 22px; text: @tr("Current filename") + "  " + root.activation-filename; color: #66666a; font-size: 11px; font-weight: 650; }
                 }
-                if root.modal-kind == 2: VerticalLayout {
+                if root.modal-kind == 2 || root.modal-kind == 4: VerticalLayout {
                     spacing: 10px;
-                    LabeledInput { label: @tr("Name"); value <=> root.edit-alias; enabled: root.operation-state != 1; }
-                    LabeledInput { label: @tr("Description (optional)"); value <=> root.edit-description; enabled: root.operation-state != 1; }
+                    LabeledInput { label: @tr("Name"); value <=> root.edit-alias; max-characters: 80; enabled: root.operation-state != 1; }
+                    LabeledTextArea { label: @tr("Description (optional)"); value <=> root.edit-description; max-characters: 200; enabled: root.operation-state != 1; }
                 }
                 if root.modal-kind == 3: Text { height: 78px; text: @tr("Permanently delete this saved copy? This cannot be undone. Current and all other saved copies stay unchanged."); color: #55555a; font-size: 12px; wrap: word-wrap; vertical-alignment: center; }
+                if root.modal-kind == 5: Text { height: 98px; text: @tr("Permanently delete every Stash entry? This cannot be undone. Current and all Presets stay unchanged."); color: #55555a; font-size: 12px; wrap: word-wrap; vertical-alignment: center; }
                 if root.operation-state == 1: Rectangle {
                     height: 44px; background: #efefec;
-                    Text { text: root.operation-kind == 0 ? @tr("Applying and verifying…") : root.operation-kind == 1 ? @tr("Activating and verifying…") : root.operation-kind == 6 ? @tr("Saving changes…") : @tr("Deleting saved copy…"); color: #55555a; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-                }
-                if root.operation-state == 3: Rectangle {
-                    height: 52px; background: #fff1f1; border-width: 1px; border-color: #efb7ba;
-                    Text { x: 10px; width: parent.width - 20px; text: Guidance.for-action(root.operation-action); color: #a51e25; font-size: 10px; font-weight: 650; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+                    Text { text: root.operation-kind == 0 ? @tr("Applying and verifying…") : root.operation-kind == 1 ? @tr("Activating and verifying…") : root.operation-kind == 2 || root.operation-kind == 3 ? @tr("Saving Current…") : root.operation-kind == 6 ? @tr("Saving changes…") : root.operation-kind == 8 ? @tr("Deleting all Stash entries…") : @tr("Deleting saved copy…"); color: #55555a; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                 }
                 Rectangle { vertical-stretch: 1; background: transparent; }
                 if root.operation-state != 1: HorizontalLayout {
                     height: 38px; spacing: 10px;
                     Rectangle { horizontal-stretch: 1; background: transparent; }
-                    ActionButton { width: 100px; primary: false; label: @tr("Cancel"); activated => { root.modal-kind = 0; root.operation-state = 0; } }
+                    ActionButton { width: 100px; primary: false; label: @tr("Cancel"); activated => { root.toast-visible = false; root.modal-kind = 0; root.operation-state = 0; } }
                     if root.modal-kind == 1: ActionButton {
                         width: 138px;
                         enabled: (root.current-state == 1 || (root.current-state == 2 && root.activation-filename != "")) && root.game-state == 1 && (root.recovery-state == 1 || root.recovery-state == 2);
@@ -458,12 +758,15 @@ export component AppWindow inherits Window {
                     }
                     if root.modal-kind == 2: ActionButton { width: 120px; enabled: root.edit-alias != ""; label: @tr("Save changes"); activated => { root.manage-requested(1, root.selected-save-id, root.edit-alias, root.edit-description); } }
                     if root.modal-kind == 3: ActionButton { width: 120px; label: @tr("Delete forever"); activated => { root.manage-requested(2, root.selected-save-id, "", ""); } }
+                    if root.modal-kind == 4: ActionButton { width: 138px; enabled: root.edit-alias != ""; label: root.capture-kind ? @tr("Save as Preset") : @tr("Save as Stash"); activated => { root.capture-requested(root.capture-kind, root.edit-alias, root.edit-description); } }
+                    if root.modal-kind == 5: ActionButton { width: 120px; label: @tr("Delete all"); activated => { root.clear-stashes-requested(); } }
                 }
             }
         }
     }
 
     if root.game-state == 2: Rectangle {
+        z: 40;
         background: #f3f3f0f2;
         TouchArea { enabled: true; }
         Rectangle {
@@ -474,9 +777,9 @@ export component AppWindow inherits Window {
                 Text { text: @tr("MIRROR'S EDGE IS RUNNING"); color: #1d1d20; font-size: 16px; font-weight: 850; horizontal-alignment: center; }
                 Text { text: @tr("Save changes are locked until the game closes."); color: #66666a; font-size: 12px; horizontal-alignment: center; }
                 Rectangle { height: 1px; background: #e3e3df; }
-                Text { text: @tr("CURRENT"); color: #7d7d82; font-size: 10px; font-weight: 800; horizontal-alignment: center; }
+                Text { text: @tr("CURRENT"); color: #7d7d82; font-size: 11px; font-weight: 800; horizontal-alignment: center; }
                 Text { text: root.current-state == 1 ? (root.current-modified == "" ? @tr("Active save verified") : @tr("Modified") + "  " + root.current-modified) : @tr("Active save unavailable"); color: #303034; font-size: 12px; font-weight: 650; horizontal-alignment: center; }
-                Text { text: @tr("Waiting for the game to close…"); color: #a76118; font-size: 10px; horizontal-alignment: center; }
+                Text { text: @tr("Waiting for the game to close…"); color: #a76118; font-size: 11px; horizontal-alignment: center; }
             }
         }
     }
