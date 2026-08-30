@@ -172,6 +172,6 @@ jobs:
               "dist/SHA256SUMS.txt" `
               --verify-tag `
               --draft `
-              --title "Mirror's Edge Save Manager $env:RELEASE_TAG" `
+              --title "$env:RELEASE_TAG" `
               --notes-file $env:RELEASE_NOTES
           "Draft release $env:RELEASE_TAG created for commit $env:GITHUB_SHA." >> $env:GITHUB_STEP_SUMMARY
