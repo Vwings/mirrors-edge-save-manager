@@ -37,7 +37,11 @@ Current or adding StoredSaves. Windows-version acceptance remains.
 The first real-game smoke test exposed usability gaps around transient feedback,
 collection-specific actions, duplicate prevention, capture metadata, and
 creation-time display. The corresponding product changes passed focused manual
-acceptance and GitHub-hosted CI. Work now resumes on Draft Release automation.
+acceptance and GitHub-hosted CI. The `v0.1.0` workflow then built and validated
+the Windows ZIP, created the annotated release tag, and produced a Draft Release.
+After downloaded-package acceptance and explicit maintainer confirmation,
+`v0.1.0` was published on 2026-08-30. The public Release page, latest-release
+redirect, ZIP, and checksum all passed unauthenticated HTTP checks.
 
 ## Completed
 
@@ -292,9 +296,9 @@ acceptance and GitHub-hosted CI. Work now resumes on Draft Release automation.
   single-window Slint file remains together because its private components are
   not reused. The desktop UI controller moved out of the binary entry point so
   `main.rs` now contains only subsystem configuration and application startup.
-- Added Windows GitHub Actions for continuous integration. The separate Draft
-  Release workflow remains uncommitted until the product changes pass CI and a
-  focused real-game smoke test.
+- Added Windows GitHub Actions for continuous integration and manually triggered
+  Draft Releases with cached validation, annotated tags, a single-EXE ZIP, and
+  an external SHA-256 checksum.
 
 ## Last Verification
 
@@ -333,9 +337,10 @@ was extracted successfully, and the running release window confirmed the new
 title-bar and header artwork without altering the active game process.
 
 The post-smoke-test product changes passed 89 automated tests, strict Clippy,
-and a fresh release build. The resulting executable is 9,631,744 bytes and
-exposes matching `0.1.0` file and product versions. Focused debug acceptance,
-the GitHub-hosted CI run, and cold-start measurement remain pending.
+focused debug acceptance, and GitHub-hosted CI. The published workflow rebuilt
+the executable with matching `0.1.0` file and product versions, then produced a
+5,256,851-byte ZIP containing only the 9,638,400-byte executable. Downloaded ZIP
+acceptance passed; cold-start measurement remains pending.
 
 ## Current Worktree Note
 
@@ -432,19 +437,13 @@ Complete these in order unless the design document is updated first:
 - [x] Verify Preset-only import, confirmed bulk Stash clearing, Preset duplicate
   prevention, and cross-collection duplicate prevention for new Stashes.
 
-## Release Resume Order
+## Release State
 
-After the usability fixes pass debug verification, preserve this sequence:
-
-1. Commit and push the fixes, then require the GitHub-hosted CI run to pass.
-2. Repeat the real-game smoke test against the resulting commit.
-3. Finalize and commit the manual Draft Release workflow and release notes.
-4. Push release preparation, require CI to pass, and manually trigger Prepare
-   Release for `0.1.0` from `main`.
-5. Let that workflow create the annotated `v0.1.0` tag and Draft Release at the
-   tested commit.
-6. Download and inspect the release package, then publish the draft only
-   after explicit maintainer confirmation.
+`v0.1.0` is publicly available from GitHub Releases. Its annotated tag points to
+commit `3bc6b5a`, and the published assets are
+`mirrors-edge-save-manager-windows-x64.zip` and `SHA256SUMS.txt`. Keep incomplete
+environment and lifecycle checks visible in `docs/release-checklist.md`; do not
+retroactively mark them complete without direct evidence.
 
 ## Separate Research Track
 

@@ -71,11 +71,19 @@ up game profile for mutation and interruption testing.
 
 ## Packaging And Lifecycle
 
-- [ ] Finalize semantic application version.
+- [x] Finalize semantic application version.
 - [x] Embed the finalized application icon in both the native window and
   executable, and expose package-derived Windows file and product versions.
-- [ ] Build and inspect the distributable package.
+- [x] Build and inspect the distributable package.
 - [ ] Verify first run, upgrade with existing version-one data, and removal.
 - [ ] Verify removal does not delete user StoredSaves without explicit consent.
 - [x] Document backup expectations, known limitations, and third-party asset
   notices in user-facing release documentation.
+
+## Publication
+
+- [x] Create annotated tag `v0.1.0` at the tested release commit.
+- [x] Download, inspect, and manually accept the ZIP from the Draft Release.
+- [x] Publish `v0.1.0` only after explicit maintainer confirmation.
+- [x] Verify the public Release page, latest-release redirect, ZIP, and checksum
+  are accessible without maintainer credentials.
